@@ -1,116 +1,157 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth'
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { auth, db } from '@/app/lib/firebase'
-import { doc, setDoc } from 'firebase/firestore'
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { useRouter } from 'next/navigation'
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { motion, AnimatePresence } from 'framer-motion'
 
 export default function Login() {
+  const [isLogin, setIsLogin] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
-  const handleAuth = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError(null)
+    
     try {
-      if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email, password)
-      } else {
+      if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password)
+      } else {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+        const user = userCredential.user
+        
+        // Update profile with display name
+        await updateProfile(user, { displayName })
+        
+        // Create user document in Firestore
+        await setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: user.email,
+          displayName,
+          photoURL: null,
+          createdAt: serverTimestamp(),
+          lastSeen: serverTimestamp(),
+          status: 'online'
+        })
       }
       router.push('/')
-    } catch (error) {
-      console.error('Authentication error:', error)
-      // Here you would typically show an error message to the user
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred')
     }
   }
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
-      const user = userCredential.user
-
-      // Store user information in Firestore
-      await setDoc(doc(db, 'users', user.uid), {
-        uid: user.uid,
-        displayName: displayName,
-        email: user.email,
-      })
-
-      console.log('User signed up successfully:', user)
-      router.push('/')
-    } catch (error) {
-      console.error('Error signing up:', error)
-    }
+  const slideVariants = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? 1000 : -1000,
+      opacity: 0
+    }),
+    center: {
+      zIndex: 1,
+      x: 0,
+      opacity: 1
+    },
+    exit: (direction: number) => ({
+      zIndex: 0,
+      x: direction < 0 ? 1000 : -1000,
+      opacity: 0
+    })
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <Card className="w-[350px]">
-        <CardHeader>
-          <CardTitle>{isSignUp ? 'Sign Up' : 'Login'}</CardTitle>
-          <CardDescription>Enter your details to {isSignUp ? 'create an account' : 'login'}</CardDescription>
-        </CardHeader>
-        <form onSubmit={isSignUp ? handleSignup : handleAuth}>
-          <CardContent>
-            <div className="grid w-full items-center gap-4">
-              {isSignUp && (
-                <div className="flex flex-col space-y-1.5">
-                  <Input
-                    id="displayName"
-                    placeholder="Display Name"
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+    <div className="min-h-screen flex items-center justify-center bg-black">
+      <div className="max-w-md w-full px-6">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={isLogin ? 'login' : 'signup'}
+            custom={isLogin ? 1 : -1}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              x: { type: "spring", stiffness: 300, damping: 30 },
+              opacity: { duration: 0.2 }
+            }}
+          >
+            <div className="bg-[#1A1A1A] p-8 rounded-lg shadow-lg">
+              <h2 className="text-2xl font-bold text-white mb-6 text-center">
+                {isLogin ? 'Welcome Back' : 'Create Account'}
+              </h2>
+
+              {error && (
+                <div className="mb-4 p-3 rounded bg-red-500/10 border border-red-500 text-red-500">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {!isLogin && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Display Name
+                    </label>
+                    <input
+                      type="text"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      className="w-full px-4 py-2 rounded-lg bg-black text-white border border-[#333] focus:outline-none focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg bg-black text-white border border-[#333] focus:outline-none focus:border-blue-500"
                     required
                   />
                 </div>
-              )}
-              <div className="flex flex-col space-y-1.5">
-                <Input
-                  id="email"
-                  placeholder="Email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="flex flex-col space-y-1.5">
-                <Input
-                  id="password"
-                  placeholder="Password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg bg-black text-white border border-[#333] focus:outline-none focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  {isLogin ? 'Sign In' : 'Sign Up'}
+                </button>
+              </form>
+
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => setIsLogin(!isLogin)}
+                  className="text-blue-500 hover:text-blue-400 text-sm"
+                >
+                  {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+                </button>
               </div>
             </div>
-          </CardContent>
-          <CardFooter className="flex flex-col">
-            <Button className="w-full" type="submit">
-              {isSignUp ? 'Sign Up' : 'Login'}
-            </Button>
-            <Button
-              className="w-full mt-2"
-              variant="outline"
-              type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
-            >
-              {isSignUp ? 'Already have an account? Login' : 'Need an account? Sign Up'}
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+          </motion.div>
+        </AnimatePresence>
+      </div>
     </div>
   )
 }

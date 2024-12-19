@@ -1,13 +1,12 @@
-import { AuthProvider } from './contexts/AuthContext'
-import './globals.css'
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'iMessage-like Chat App',
-  description: 'A chat application similar to iMessage built with Next.js',
+  title: 'iMessage Clone',
+  description: 'A messaging app built with Next.js and Firebase',
 }
 
 export default function RootLayout({
@@ -17,11 +16,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
-      </body>
+      <body className={`${inter.className} bg-black text-white`}>{children}</body>
     </html>
   )
 }
