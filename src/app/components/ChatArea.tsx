@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
@@ -34,6 +34,7 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
   const [newMessage, setNewMessage] = useState('');
   const [typingStates, setTypingStates] = useState<TypingState[]>([]);
   const { user } = useAuth();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (selectedChat) {
@@ -117,6 +118,14 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
     }
   };
 
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
   if (!selectedChat) {
     return (
       <div className="flex items-center justify-center h-full bg-black">
@@ -128,16 +137,16 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
   return (
     <div className="flex flex-col h-full bg-black">
       {/* Chat Header */}
-      <div className="flex items-center px-6 py-4 border-b border-[#1A1A1A]">
+      <div className="flex items-center px-4 py-2 border-b border-[#1A1A1A]">
         <div className="flex-1 text-center">
-          <h2 className="text-white font-medium text-lg">
+          <h2 className="text-white font-medium text-lg truncate">
             {selectedChat.users[1]?.split('@')[0]}
           </h2>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {messages.map((message) => (
           <div
             key={message.id}
@@ -145,12 +154,12 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
               message.sender === user?.uid ? 'justify-end' : 'justify-start'
             }`}
           >
-            <div className="flex flex-col max-w-[70%]">
+            <div className="flex flex-col max-w-[85%]">
               <div
-                className={`px-4 py-2 ${
+                className={`px-3 py-2 ${
                   message.sender === user?.uid
-                    ? 'bg-blue-500 text-white rounded-t-2xl rounded-l-2xl rounded-br-lg'
-                    : 'bg-[#1A1A1A] text-white rounded-t-2xl rounded-r-2xl rounded-bl-lg'
+                    ? 'bg-blue-500 text-white rounded-2xl rounded-br-none'
+                    : 'bg-[#1A1A1A] text-white rounded-2xl rounded-bl-none'
                 }`}
               >
                 {message.text}
@@ -171,17 +180,18 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
           .filter(state => state.user !== user?.uid && state.text)
           .map(state => (
             <div key={state.user} className="flex justify-start">
-              <div className="flex flex-col max-w-[70%]">
-                <div className="px-4 py-2 bg-[#1A1A1A]/50 text-gray-400 rounded-t-2xl rounded-r-2xl rounded-bl-lg">
+              <div className="flex flex-col max-w-[85%]">
+                <div className="px-3 py-2 bg-[#1A1A1A]/50 text-gray-400 rounded-2xl rounded-bl-none">
                   {state.text}
                 </div>
               </div>
             </div>
           ))}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
-      <div className="p-4 border-t border-[#1A1A1A]">
+      <div className="sticky bottom-0 p-2 border-t border-[#1A1A1A] bg-black">
         <form onSubmit={sendMessage} className="flex items-center space-x-2">
           <button type="button" className="text-gray-500">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -193,7 +203,7 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
             value={newMessage}
             onChange={handleMessageChange}
             placeholder="iMessage"
-            className="flex-1 bg-[#1A1A1A] text-white rounded-full px-4 py-2 focus:outline-none"
+            className="flex-1 bg-[#1A1A1A] text-white rounded-full px-3 py-2 focus:outline-none"
           />
           <button type="submit" className="text-blue-500">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
