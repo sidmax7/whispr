@@ -207,7 +207,7 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
             ref={inputRef}
             value={newMessage}
             onChange={handleMessageChange}
-            placeholder="iMessage"
+            placeholder="Type a message..."
             className="flex-1 bg-[#1A1A1A] text-white rounded-full px-3 py-2 focus:outline-none"
             enterKeyHint="send"
             autoFocus

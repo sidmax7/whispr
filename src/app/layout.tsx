@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'iMessage Clone',
-  description: 'A messaging app built with Next.js and Firebase',
+  title: 'Whispr',
+  description: 'A messaging app from the new generation',
 }
 
 export default function RootLayout({
@@ -16,6 +16,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <title>Whispr</title>
+      </head>
       <body className={`${inter.className} bg-black text-white`}>{children}</body>
     </html>
   )
