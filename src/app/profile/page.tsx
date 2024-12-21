@@ -9,7 +9,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
 import { setDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Camera, X, ArrowLeft } from 'lucide-react';
+import { Camera, ArrowLeft } from 'lucide-react';
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
