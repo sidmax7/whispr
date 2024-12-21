@@ -137,8 +137,26 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
   if (!selectedChat) {
     return (
-      <div className="flex items-center justify-center h-full bg-black">
-        <p className="text-xl text-gray-500">Select a chat to start messaging</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-black text-white p-4">
+        <div className="relative w-full max-w-sm">
+          <div className="absolute top-0 left-4 transform -translate-y-full">
+            <svg className="w-12 h-12 text-blue-500 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+            </svg>
+          </div>
+          <button
+            onClick={onOpenChatList}
+            className="w-full py-3 px-4 bg-blue-500 text-white rounded-lg font-medium text-lg flex items-center justify-center space-x-2 hover:bg-blue-600 transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+            <span>Start a new chat</span>
+          </button>
+          <p className="mt-4 text-center text-gray-400">
+            Tap the button above to open the chat list and start messaging
+          </p>
+        </div>
       </div>
     );
   }

@@ -14,11 +14,15 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage }: Cha
 
   // Keep focus on input
   useEffect(() => {
-    const keepFocus = () => {
+    const keepFocus = (e: MouseEvent | TouchEvent) => {
+      // Check if the click is on the hamburger button
+      const target = e.target as HTMLElement;
+      if (target.closest('[aria-label="Open chat list"]')) {
+        return;
+      }
       inputRef.current?.focus();
     };
 
-    keepFocus();
     document.addEventListener('click', keepFocus);
     document.addEventListener('touchend', keepFocus);
 
