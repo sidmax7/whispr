@@ -95,6 +95,25 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     }
   }, [messages, selectedChat, user?.uid]);
 
+  // Add this effect to maintain focus
+  useEffect(() => {
+    const keepFocus = () => {
+      inputRef.current?.focus();
+    };
+
+    // Keep focus when component mounts
+    keepFocus();
+
+    // Add event listeners to maintain focus
+    document.addEventListener('click', keepFocus);
+    document.addEventListener('touchend', keepFocus);
+
+    return () => {
+      document.removeEventListener('click', keepFocus);
+      document.removeEventListener('touchend', keepFocus);
+    };
+  }, [selectedChat]);
+
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newMessage.trim() && selectedChat && user?.uid) {
@@ -103,25 +122,38 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         sender: user.uid,
         timestamp: serverTimestamp(),
         read: false,
-        readBy: [user.uid]  // Message is "read" by sender
+        readBy: [user.uid]
       });
 
-      // Clear typing state
       const typingRef = doc(db, `chats/${selectedChat.id}/typing`, user.uid);
       await deleteDoc(typingRef);
       setNewMessage('');
-
-      // Focus the input field after sending the message
-      inputRef.current?.focus();
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  // Scroll to bottom when new messages arrive or when keyboard appears/disappears
   useEffect(() => {
+    const scrollToBottom = () => {
+      if (messagesEndRef.current) {
+        // Use requestAnimationFrame to ensure DOM has updated
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        });
+      }
+    };
+
+    // Listen for viewport height changes (keyboard appearing/disappearing)
+    const handleResize = () => {
+      scrollToBottom();
+    };
+
+    // Add event listeners
+    window.addEventListener('resize', handleResize);
     scrollToBottom();
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
   }, [messages]);
 
   if (!selectedChat) {
@@ -134,8 +166,8 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
   return (
     <div className="flex flex-col h-full bg-black overflow-hidden">
-      {/* Chat Header */}
-      <div className="flex items-center px-4 py-2 border-b border-[#1A1A1A]">
+      {/* Chat Header - fixed at top */}
+      <div className="fixed top-0 left-0 right-0 z-10 flex items-center px-4 py-2 border-b border-[#1A1A1A] bg-black">
         <button
           onClick={onOpenChatList}
           className="lg:hidden mr-2 p-2 rounded-full hover:bg-[#252525] transition-colors"
@@ -152,8 +184,8 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+      {/* Messages - with padding to account for fixed header and input */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-2 pt-16 pb-20 mb-safe">
         {messages.map((message) => (
           <div
             key={message.id}
@@ -197,8 +229,8 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="sticky bottom-0 p-2 border-t border-[#1A1A1A] bg-black">
+      {/* Input Area - fixed at bottom with safe area padding */}
+      <div className="fixed bottom-0 left-0 right-0 z-10 p-2 pb-safe border-t border-[#1A1A1A] bg-black">
         <form onSubmit={sendMessage} className="flex items-center space-x-2">
           <button type="button" className="text-gray-500">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -213,8 +245,14 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
             placeholder="Type a message..."
             className="flex-1 bg-[#1A1A1A] text-white rounded-full px-3 py-2 focus:outline-none"
             enterKeyHint="send"
-            autoFocus
-            onBlur={() => inputRef.current?.focus()}
+            onFocus={(e) => {
+              // Prevent the default focus behavior
+              e.stopPropagation();
+              // Scroll to bottom when input is focused (keyboard appears)
+              setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+              }, 100);
+            }}
           />
           <button type="submit" className="text-blue-500">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
