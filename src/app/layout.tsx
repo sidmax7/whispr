@@ -18,6 +18,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <title>Whispr</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
       </head>
       <body className={`${inter.className} bg-black text-white`}>{children}</body>
     </html>

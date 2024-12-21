@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, setDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
+import { Chat } from '../types/chat';
 
-// Define interfaces for our types
 interface Message {
   id: string;
   text: string;
@@ -13,15 +13,9 @@ interface Message {
   readBy: string[];  // Array of user IDs who have read the message
 }
 
-interface Chat {
-  id: string;
-  users: string[];
-  lastMessage?: string;
-  timestamp?: string;
-}
-
 interface ChatAreaProps {
   selectedChat: Chat | null;
+  onOpenChatList: () => void;
 }
 
 interface TypingState {
@@ -29,7 +23,7 @@ interface TypingState {
   user: string;
 }
 
-export default function ChatArea({ selectedChat }: ChatAreaProps) {
+export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [typingStates, setTypingStates] = useState<TypingState[]>([]);
@@ -139,12 +133,21 @@ export default function ChatArea({ selectedChat }: ChatAreaProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-black">
+    <div className="flex flex-col h-full bg-black overflow-hidden">
       {/* Chat Header */}
       <div className="flex items-center px-4 py-2 border-b border-[#1A1A1A]">
+        <button
+          onClick={onOpenChatList}
+          className="lg:hidden mr-2 p-2 rounded-full hover:bg-[#252525] transition-colors"
+          aria-label="Open chat list"
+        >
+          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
         <div className="flex-1 text-center">
           <h2 className="text-white font-medium text-lg truncate">
-            {selectedChat.users.find(u => u !== user?.email)?.split('@')[0] || 'Chat'}
+            {selectedChat.users.find(u => u.email !== user?.email)?.displayName || 'Chat'}
           </h2>
         </div>
       </div>

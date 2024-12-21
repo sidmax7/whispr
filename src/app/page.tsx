@@ -5,13 +5,7 @@ import { useRouter } from 'next/navigation';
 import ChatArea from './components/ChatArea';
 import ChatList from './components/ChatList';
 import { useAuth } from './hooks/useAuth';
-
-interface Chat {
-  id: string;
-  users: string[];
-  lastMessage?: string;
-  timestamp?: string;
-}
+import { Chat } from './types/chat';
 
 export default function Home() {
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -43,12 +37,12 @@ export default function Home() {
   }
 
   return (
-    <main className="flex h-screen bg-black">
-      {/* Mobile menu button - only shows on mobile */}
+    <main className="flex h-screen bg-black overflow-hidden">
       {!isChatListOpen && (
         <button
           onClick={() => setIsChatListOpen(true)}
           className="lg:hidden fixed top-4 left-4 z-50 text-white p-2 rounded-full bg-[#1A1A1A] hover:bg-[#252525]"
+          aria-label="Open chat list"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -56,10 +50,9 @@ export default function Home() {
         </button>
       )}
 
-      {/* Chat list - responsive */}
       <div
         className={`
-          fixed inset-y-0 left-0 z-50 lg:relative lg:flex
+          fixed inset-y-0 left-0 z-50 w-80 lg:w-80 lg:relative lg:flex
           transform transition-transform duration-300 ease-in-out
           ${isChatListOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
@@ -67,19 +60,10 @@ export default function Home() {
         <ChatList
           onSelectChat={handleSelectChat}
           selectedChat={selectedChat}
+          onClose={() => setIsChatListOpen(false)}
         />
-        {/* Close button for mobile */}
-        <button
-          onClick={() => setIsChatListOpen(false)}
-          className="lg:hidden absolute top-2 right-2 text-white p-2"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
       </div>
 
-      {/* Overlay for mobile */}
       {isChatListOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
@@ -87,10 +71,10 @@ export default function Home() {
         />
       )}
 
-      {/* Chat area */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative overflow-hidden">
         <ChatArea 
           selectedChat={selectedChat}
+          onOpenChatList={() => setIsChatListOpen(true)}
         />
       </div>
     </main>
