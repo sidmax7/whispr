@@ -55,7 +55,7 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage }: Cha
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-10 p-2 pb-safe border-t border-[#1A1A1A] bg-black">
+    <div className="w-full bg-black">
       <form onSubmit={handleSubmit} className="flex items-center space-x-2">
         <button type="button" className="text-gray-500">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

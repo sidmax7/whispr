@@ -37,7 +37,11 @@ export default function Login() {
           photoURL: null,
           createdAt: serverTimestamp(),
           lastSeen: serverTimestamp(),
-          status: 'online'
+          status: 'online',
+          users: [],
+          messages: [],
+          lastMessage: '',
+          timestamp: serverTimestamp()
         })
       }
       router.push('/')

@@ -6,6 +6,7 @@ import UserSearch from './UserSearch';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Chat, UserProfile } from '../types/chat';
+import { Timestamp } from 'firebase/firestore';
 
 interface ChatListProps {
   onSelectChat: (chat: Chat) => void;
@@ -84,6 +85,40 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
   const handleSelectUser = async (recipientEmail: string) => {
     if (!user?.email) return;
 
+    // First fetch the recipient's profile
+    const recipientQuery = await getDocs(query(
+      collection(db, 'users'), 
+      where('email', '==', recipientEmail)
+    ));
+    
+    const recipientData = recipientQuery.docs[0]?.data() || {
+      displayName: recipientEmail.split('@')[0],
+      photoURL: null
+    };
+
+    const chatData = {
+      users: [
+        { email: user.email, displayName: user.displayName || '' },
+        { email: recipientEmail, displayName: recipientData.displayName || recipientEmail.split('@')[0] }
+      ],
+      createdAt: serverTimestamp(),
+      messages: [],
+      lastMessage: '',
+      timestamp: serverTimestamp(),
+      userProfiles: {
+        [user.email]: {
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL
+        },
+        [recipientEmail]: {
+          email: recipientEmail,
+          displayName: recipientData.displayName,
+          photoURL: recipientData.photoURL
+        }
+      }
+    };
+
     // Check if chat already exists
     const existingChat = chats.find(chat => 
       chat.users.some(u => u.email === recipientEmail) && 
@@ -93,22 +128,12 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
     if (existingChat) {
       onSelectChat(existingChat);
     } else {
-      // Create new chat
-      const chatRef = await addDoc(collection(db, 'chats'), {
-        users: [
-          { email: user.email, displayName: user.displayName || '' },
-          { email: recipientEmail, displayName: recipientEmail.split('@')[0] }
-        ],
-        createdAt: serverTimestamp(),
-      });
+      const chatRef = await addDoc(collection(db, 'chats'), chatData);
 
       const newChat: Chat = {
         id: chatRef.id,
-        users: [
-          { email: user.email, displayName: user.displayName || '' },
-          { email: recipientEmail, displayName: recipientEmail.split('@')[0] }
-        ],
-        timestamp: 'Just now'
+        ...chatData,
+        timestamp: serverTimestamp() as unknown as Timestamp
       };
 
       onSelectChat(newChat);
@@ -120,6 +145,17 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
     return (chat.messages || []).filter(
       msg => msg.sender !== user.uid && !msg.readBy.includes(user.uid)
     ).length;
+  };
+
+  const sortedChats = [...chats].sort((a, b) => {
+    if (!a.timestamp || !b.timestamp) return 0;
+    // Firestore timestamps can be compared directly
+    return b.timestamp.toMillis() - a.timestamp.toMillis();
+  });
+
+  const formatTimestamp = (timestamp: Timestamp | undefined) => {
+    if (!timestamp) return 'Today';
+    return new Date(timestamp.seconds * 1000).toLocaleDateString();
   };
 
   return (
@@ -189,7 +225,7 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {chats.map((chat) => {
+        {sortedChats.map((chat) => {
           const otherUser = getChatUser(chat);
           
           return (
@@ -227,7 +263,7 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
                           {getUnreadCount(chat)}
                         </span>
                       )}
-                      <span className="text-xs text-gray-500">{chat.timestamp || 'Today'}</span>
+                      <span className="text-xs text-gray-500">{formatTimestamp(chat.timestamp)}</span>
                     </div>
                   </div>
                   {chat.lastMessage && (

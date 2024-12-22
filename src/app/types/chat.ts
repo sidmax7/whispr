@@ -24,7 +24,7 @@ export interface Chat {
   id: string;
   users: ChatUser[];
   lastMessage?: string;
-  timestamp?: string;
+  timestamp?: Timestamp;
   messages?: Message[];
   userProfiles?: { [key: string]: UserProfile };
 } 

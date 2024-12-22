@@ -162,8 +162,8 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
   }
 
   return (
-    <div className="flex flex-col h-full bg-black overflow-hidden">
-      {/* Chat Header - fixed at top */}
+    <div className="flex flex-col h-full w-full max-w-full overflow-x-hidden">
+      {/* Chat Header */}
       <div className="fixed top-0 left-0 right-0 z-10 flex items-center px-4 py-2 border-b border-[#1A1A1A] bg-black">
         <button
           onClick={onOpenChatList}
@@ -181,18 +181,18 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         </div>
       </div>
 
-      {/* Messages - with padding to account for fixed header and input */}
-      <div className="absolute top-16 bottom-[72px] left-0 right-0 overflow-y-auto p-2 space-y-2">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-16 pb-20">
         {messages.map((message) => (
           <div
             key={message.id}
             className={`flex ${
               message.sender === user?.uid ? 'justify-end' : 'justify-start'
-            }`}
+            } mb-2`}
           >
-            <div className="flex flex-col max-w-[85%]">
+            <div className="break-words max-w-[85%] md:max-w-[75%] w-fit">
               <div
-                className={`px-3 py-2 ${
+                className={`px-3 py-2 whitespace-pre-wrap break-all ${
                   message.sender === user?.uid
                     ? 'bg-blue-500 text-white rounded-2xl rounded-br-none'
                     : 'bg-[#1A1A1A] text-white rounded-2xl rounded-bl-none'
@@ -216,7 +216,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
           .filter(state => state.user !== user?.uid && state.text)
           .map(state => (
             <div key={state.user} className="flex justify-start">
-              <div className="flex flex-col max-w-[85%]">
+              <div className="break-words max-w-[85%] md:max-w-[75%]">
                 <div className="px-3 py-2 bg-[#1A1A1A]/50 text-gray-400 rounded-2xl rounded-bl-none">
                   {state.text}
                 </div>
@@ -228,11 +228,13 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
       {/* Chat Input */}
       {user && selectedChat && (
-        <ChatInput
-          selectedChatId={selectedChat.id}
-          userId={user.uid}
-          onSendMessage={handleSendMessage}
-        />
+        <div className="sticky bottom-0 left-0 right-0 z-10 bg-black border-t border-[#1A1A1A] px-4 py-2">
+          <ChatInput
+            selectedChatId={selectedChat.id}
+            userId={user.uid}
+            onSendMessage={handleSendMessage}
+          />
+        </div>
       )}
     </div>
   );
