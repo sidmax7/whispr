@@ -7,13 +7,20 @@ import Image from 'next/image';
 import { updateProfile } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
-import { setDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { setDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Camera, ArrowLeft } from 'lucide-react';
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { query, getDocs, where, writeBatch, collection } from 'firebase/firestore';
+import { auth } from '../lib/firebase';
+
+interface ChatUser {
+  email: string;
+  displayName?: string;
+}
 
 export default function Profile() {
   const { user, loading } = useAuth();
@@ -49,16 +56,70 @@ export default function Profile() {
     }
   };
 
+  const updateUserChats = async (newDisplayName: string) => {
+    if (!user?.email) return;
+
+    const chatsQuery = query(
+      collection(db, 'chats'),
+      where('users', 'array-contains', { email: user.email })
+    );
+
+    const chatsSnapshot = await getDocs(chatsQuery);
+    const batch = writeBatch(db);
+    
+    chatsSnapshot.docs.forEach((chatDoc) => {
+      const chatData = chatDoc.data();
+      
+      const updatedUsers = chatData.users.map((u: ChatUser) => 
+        u.email === user.email ? { ...u, displayName: newDisplayName } : u
+      );
+
+      const updatedUserProfiles = {
+        ...chatData.userProfiles,
+        [user.email as string]: {
+          ...chatData.userProfiles[user.email as string],
+          displayName: newDisplayName
+        }
+      };
+
+      batch.update(chatDoc.ref, {
+        users: updatedUsers,
+        userProfiles: updatedUserProfiles
+      });
+    });
+
+    await batch.commit();
+  };
+
+  const handleProfileUpdate = async (newDisplayName: string) => {
+    try {
+      // Update user profile in auth
+      await updateProfile(auth.currentUser!, {
+        displayName: newDisplayName
+      });
+
+      // Update user document in Firestore
+      const userRef = doc(db, 'users', user!.uid);
+      await updateDoc(userRef, {
+        displayName: newDisplayName
+      });
+
+      // Update all chats containing this user
+      await updateUserChats(newDisplayName);
+
+      // ... rest of your profile update logic
+    } catch (error) {
+      console.error('Error updating profile:', error);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
     try {
       setIsSaving(true);
-      await updateProfile(user, {
-        displayName,
-        photoURL,
-      });
+      await handleProfileUpdate(displayName);
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         displayName,
@@ -93,7 +154,7 @@ export default function Profile() {
             variant="ghost" 
             size="icon"
             className="absolute left-4 top-4"
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/dashboard')}
           >
             <ArrowLeft className="h-6 w-6" />
           </Button>

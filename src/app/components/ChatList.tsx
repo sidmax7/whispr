@@ -1,3 +1,5 @@
+'use client'
+
 import { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, where, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
@@ -18,7 +20,7 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
 
   const fetchUserProfiles = async (chat: Chat) => {
@@ -96,24 +98,41 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
       photoURL: null
     };
 
+    // Get current user's profile to ensure we have latest display name
+    const currentUserQuery = await getDocs(query(
+      collection(db, 'users'),
+      where('email', '==', user.email)
+    ));
+
+    const currentUserData = currentUserQuery.docs[0]?.data() || {
+      displayName: user.displayName || user.email?.split('@')[0],
+      photoURL: user.photoURL
+    };
+
     const chatData = {
       users: [
-        { email: user.email, displayName: user.displayName || '' },
-        { email: recipientEmail, displayName: recipientData.displayName || recipientEmail.split('@')[0] }
+        { 
+          email: user.email, 
+          displayName: currentUserData.displayName || user.email.split('@')[0]  // Use current user's display name
+        },
+        { 
+          email: recipientEmail, 
+          displayName: recipientData.displayName || recipientEmail.split('@')[0] 
+        }
       ],
       createdAt: serverTimestamp(),
       messages: [],
       lastMessage: '',
       timestamp: serverTimestamp(),
       userProfiles: {
-        [user.email]: {
+        [user.email as string]: {
           email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL
+          displayName: currentUserData.displayName || user.email.split('@')[0],
+          photoURL: currentUserData.photoURL
         },
         [recipientEmail]: {
           email: recipientEmail,
-          displayName: recipientData.displayName,
+          displayName: recipientData.displayName || recipientEmail.split('@')[0],
           photoURL: recipientData.photoURL
         }
       }
@@ -157,6 +176,15 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
     if (!timestamp) return 'Today';
     return new Date(timestamp.seconds * 1000).toLocaleDateString();
   };
+
+  const handleLogout = async () => {
+    try {
+      await signOut()
+      router.push('/')
+    } catch (error) {
+      console.error('Error logging out:', error)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full bg-black w-full overflow-hidden">
@@ -276,6 +304,28 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
             </div>
           );
         })}
+      </div>
+
+      <div className="p-4 border-t border-gray-800">
+        <button
+          onClick={handleLogout}
+          className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 rounded-lg flex items-center justify-center gap-2 transition-colors"
+        >
+          <svg 
+            className="w-5 h-5" 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              strokeWidth={2} 
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" 
+            />
+          </svg>
+          Logout
+        </button>
       </div>
     </div>
   );

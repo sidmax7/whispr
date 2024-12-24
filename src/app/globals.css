@@ -36,3 +36,8 @@ body {
   background: #555;
 }
 
+@keyframes blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
