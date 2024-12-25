@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
+import Image from 'next/image';
 
 interface ChatInputProps {
   selectedChatId: string;
@@ -10,7 +11,7 @@ interface ChatInputProps {
 
 export default function ChatInput({ selectedChatId, userId, onSendMessage }: ChatInputProps) {
   const [newMessage, setNewMessage] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Keep focus on input
   useEffect(() => {
@@ -32,9 +33,19 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage }: Cha
     };
   }, []);
 
-  const handleMessageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMessageChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setNewMessage(text);
+
+    // Adjust textarea height only when there's content
+    if (inputRef.current) {
+      if (text) {
+        inputRef.current.style.height = '36px';
+        inputRef.current.style.height = `${Math.min(Math.max(inputRef.current.scrollHeight, 36), 120)}px`;
+      } else {
+        inputRef.current.style.height = '36px';
+      }
+    }
 
     const typingRef = doc(db, `chats/${selectedChatId}/typing`, userId);
     if (text) {
@@ -51,32 +62,97 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage }: Cha
       const typingRef = doc(db, `chats/${selectedChatId}/typing`, userId);
       await deleteDoc(typingRef);
       setNewMessage('');
+      
+      // Reset textarea height
+      if (inputRef.current) {
+        inputRef.current.style.height = 'auto';
+      }
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
+  useEffect(() => {
+    if (inputRef.current && !newMessage) {
+      inputRef.current.style.height = '36px';
+    }
+  }, [newMessage]);
+
   return (
-    <div className="w-full bg-black">
-      <form onSubmit={handleSubmit} className="flex items-center space-x-2">
-        <button type="button" className="text-gray-500">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    <div className="w-full bg-[#1E1B2E]">
+      <form onSubmit={handleSubmit} className="flex items-center gap-3 px-2 py-2">
+        <button 
+          type="button" 
+          className="p-1.5 rounded-full bg-[#2A2640] hover:bg-[#363150] transition-colors"
+        >
+          <svg 
+            width="20" 
+            height="20" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            className="text-gray-400"
+          >
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              strokeWidth={2} 
+              d="M12 5v14m-7-7h14"
+            />
           </svg>
         </button>
-        <input
-          type="text"
-          ref={inputRef}
-          value={newMessage}
-          onChange={handleMessageChange}
-          placeholder="Type a message..."
-          className="flex-1 bg-[#1A1A1A] text-white rounded-full px-3 py-2 focus:outline-none"
-          enterKeyHint="send"
-        />
-        <button type="submit" className="text-blue-500">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+        <div className="flex-1 relative">
+          <textarea
+            ref={inputRef}
+            value={newMessage}
+            onChange={handleMessageChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Type your message"
+            className="w-full bg-[#2A2640] text-white rounded-full px-4 py-[6px] focus:outline-none resize-none h-[36px] max-h-[120px] border-none placeholder-gray-400 text-[15px] leading-[24px] overflow-hidden"
+            style={{ height: 'auto' }}
+          />
+        </div>
+        <button 
+          type="submit"
+          disabled={!newMessage.trim()}
+          className="p-1.5 rounded-full bg-[#2A2640] hover:bg-[#363150] transition-colors disabled:opacity-50"
+        >
+          <img
+            src="/assets/send.svg"
+            alt="Send"
+            width={20}
+            height={20}
+            className="opacity-80"
+          />
+        </button>
+        <button 
+          type="button"
+          className="p-1.5 rounded-full bg-[#2A2640] hover:bg-[#363150] transition-colors"
+        >
+          <svg 
+            width="18" 
+            height="18" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            className="text-gray-400"
+          >
+            <path 
+              d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" 
+              fill="currentColor"
+            />
+            <path 
+              d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" 
+              fill="currentColor"
+            />
           </svg>
         </button>
       </form>
     </div>
   );
-} 
+}
+

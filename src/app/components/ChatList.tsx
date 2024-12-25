@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Chat, UserProfile } from '../types/chat';
 import { Timestamp } from 'firebase/firestore';
+import { LogOut, Search, Settings, X } from 'lucide-react';
 
 interface ChatListProps {
   onSelectChat: (chat: Chat) => void;
@@ -187,32 +188,28 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
   }
 
   return (
-    <div className="flex flex-col h-full bg-black w-full overflow-hidden">
-      <div className="p-4 flex justify-between items-center border-b border-[#1A1A1A]">
+    <div className="flex flex-col h-full bg-[#252436] w-full overflow-hidden">
+      <div className="p-4 flex justify-between items-center border-b border-[#2A2640]">
         <h1 className="text-2xl font-semibold text-white">Messages</h1>
         <div className="flex items-center space-x-2">
           <button
             onClick={() => router.push('/profile')}
-            className="p-2 rounded-full hover:bg-[#252525] transition-colors"
+            className="p-2 rounded-full hover:bg-[#2A2640] transition-colors text-gray-400 hover:text-white"
             title="Profile Settings"
           >
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+            <Settings className="w-6 h-6" />
           </button>
           <button
             onClick={onClose}
-            className="lg:hidden p-2 rounded-full hover:bg-[#252525] transition-colors"
+            className="lg:hidden p-2 rounded-full hover:bg-[#2A2640] transition-colors text-gray-400 hover:text-white"
             title="Close chat list"
           >
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-6 h-6" />
           </button>
         </div>
       </div>
       
-      <div className="px-4 pb-2 relative">
+      <div className="px-4 py-3 relative">
         <div className="relative">
           <input
             type="text"
@@ -220,27 +217,15 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setIsSearching(true)}
-            className="w-full bg-[#1A1A1A] text-white rounded-full py-2 pl-9 pr-4 focus:outline-none"
+            className="w-full bg-[#2A2640] text-white rounded-full py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-violet-500"
           />
-          <svg
-            className="absolute left-3 top-2.5 h-5 w-5 text-gray-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
+          <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
         </div>
 
         {isSearching && (
           <>
             <div 
-              className="fixed inset-0 bg-transparent" 
+              className="fixed inset-0 bg-black/50" 
               onClick={() => setIsSearching(false)}
             />
             <UserSearch
@@ -259,13 +244,13 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
           return (
             <div
               key={chat.id}
-              className={`px-4 py-3 cursor-pointer hover:bg-[#1A1A1A] ${
-                selectedChat?.id === chat.id ? 'bg-[#1A1A1A]' : ''
+              className={`px-4 py-3 cursor-pointer hover:bg-[#2A2640] transition-colors ${
+                selectedChat?.id === chat.id ? 'bg-[#2A2640]' : ''
               }`}
               onClick={() => onSelectChat(chat)}
             >
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-full bg-[#1A1A1A] flex items-center justify-center overflow-hidden">
+                <div className="w-12 h-12 rounded-full bg-violet-600 flex items-center justify-center overflow-hidden">
                   {otherUser?.photoURL ? (
                     <Image
                       src={otherUser.photoURL}
@@ -275,7 +260,7 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
                       className="object-cover w-full h-full"
                     />
                   ) : (
-                    <span className="text-white text-lg">
+                    <span className="text-white text-lg font-medium">
                       {(otherUser?.displayName || otherUser?.email || '?').charAt(0).toUpperCase()}
                     </span>
                   )}
@@ -287,15 +272,15 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
                     </h3>
                     <div className="flex items-center space-x-2">
                       {getUnreadCount(chat) > 0 && (
-                        <span className="bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                        <span className="bg-violet-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                           {getUnreadCount(chat)}
                         </span>
                       )}
-                      <span className="text-xs text-gray-500">{formatTimestamp(chat.timestamp)}</span>
+                      <span className="text-xs text-gray-400">{formatTimestamp(chat.timestamp)}</span>
                     </div>
                   </div>
                   {chat.lastMessage && (
-                    <p className="text-gray-500 text-sm truncate">
+                    <p className="text-gray-400 text-sm truncate">
                       {chat.lastMessage}
                     </p>
                   )}
@@ -306,28 +291,15 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
         })}
       </div>
 
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-[#2A2640]">
         <button
           onClick={handleLogout}
-          className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          className="w-full py-2 px-4 bg-violet-600 hover:bg-violet-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
         >
-          <svg 
-            className="w-5 h-5" 
-            fill="none" 
-            stroke="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <path 
-              strokeLinecap="round" 
-              strokeLinejoin="round" 
-              strokeWidth={2} 
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" 
-            />
-          </svg>
+          <LogOut className="w-5 h-5" />
           Logout
         </button>
       </div>
     </div>
   );
 }
-

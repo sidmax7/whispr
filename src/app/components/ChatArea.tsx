@@ -4,6 +4,7 @@ import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import { Chat } from '../types/chat';
 import ChatInput from './ChatInput';
+import { Check } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -137,73 +138,84 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
   if (!selectedChat) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-black text-white p-4">
-        <div className="relative w-full max-w-sm">
-          <div className="absolute top-0 left-4 transform -translate-y-full">
-            <svg className="w-12 h-12 text-blue-500 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-            </svg>
+      <div className="flex flex-col items-center justify-center h-screen bg-[#2C2A42] text-white p-4">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 lg:w-28 lg:h-28 flex items-center justify-center">
+            <img 
+              src="/assets/pirate.svg" 
+              alt="Ghost Logo" 
+              width={96} 
+              height={96}
+              className="w-full h-full"
+            />
           </div>
-          <button
-            onClick={onOpenChatList}
-            className="w-full py-3 px-4 bg-blue-500 text-white rounded-lg font-medium text-lg flex items-center justify-center space-x-2 hover:bg-blue-600 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-            <span>Start a new chat</span>
-          </button>
-          <p className="mt-4 text-center text-gray-400">
-            Tap the button above to open the chat list and start messaging
-          </p>
+          <h1 className="text-3xl font-bold">Say hi</h1>
+          <p className="text-gray-400">small talk, big connections</p>
+          <div className="mt-auto pt-8">
+            <div className="flex items-center gap-2 text-gray-400">
+              <img src="/assets/secure.svg" alt="Secure" className="w-6 h-6" />
+              <span>End - to - end encrypted</span>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full max-w-full overflow-x-hidden">
-      {/* Chat Header */}
-      <div className="fixed top-0 left-0 right-0 z-10 flex items-center px-4 py-2 border-b border-[#1A1A1A] bg-black">
+    <div className="flex flex-col h-full w-full max-w-full overflow-x-hidden bg-[#1E1B2E]">
+      {/* Chat Header - Updated z-index and adjusted positioning */}
+      <div className="sticky top-0 left-0 right-0 z-50 flex items-center px-4 py-3 border-b border-[#2A2640] bg-[#252436]">
         <button
           onClick={onOpenChatList}
-          className="lg:hidden mr-2 p-2 rounded-full hover:bg-[#252525] transition-colors"
+          className="lg:hidden mr-2 p-2 rounded-full hover:bg-[#2A2640] transition-colors"
           aria-label="Open chat list"
         >
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <div className="flex-1 text-center">
-          <h2 className="text-white font-medium text-lg truncate">
+        <div className="flex-1">
+          <h2 className="text-white font-medium text-lg">
             {selectedChat.users.find(u => u.email !== user?.email)?.displayName || 'Chat'}
           </h2>
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-16 pb-20">
+      {/* Messages - Updated padding to account for header */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-20">
         {messages.map((message) => (
           <div
             key={message.id}
             className={`flex ${
               message.sender === user?.uid ? 'justify-end' : 'justify-start'
-            } mb-2`}
+            } mb-4`}
           >
             <div className="break-words max-w-[85%] md:max-w-[75%] w-fit">
               <div
-                className={`px-3 py-2 whitespace-pre-wrap break-all ${
+                className={`px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-all ${
                   message.sender === user?.uid
-                    ? 'bg-blue-500 text-white rounded-2xl rounded-br-none'
-                    : 'bg-[#1A1A1A] text-white rounded-2xl rounded-bl-none'
+                    ? 'bg-[#584ACB] text-white rounded-[20px] rounded-br-[5px]'
+                    : 'bg-[#413F51] text-white rounded-[20px] rounded-bl-[5px]'
                 }`}
               >
                 {message.text}
               </div>
               {message.sender === user?.uid && (
                 <div className="flex justify-end mt-1">
-                  <span className="text-[10px] text-gray-500">
-                    {message.readBy.length > 1 ? 'Read' : 'Delivered'}
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    {message.readBy.length > 1 ? (
+                      <>
+                        Read
+                        <Check className="w-3 h-3 text-violet-500" />
+                        <Check className="w-3 h-3 text-violet-500 -ml-2" />
+                      </>
+                    ) : (
+                      <>
+                        Sent
+                        <Check className="w-3 h-3 text-gray-500" />
+                      </>
+                    )}
                   </span>
                 </div>
               )}
@@ -215,9 +227,9 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         {typingStates
           .filter(state => state.user !== user?.uid && state.text)
           .map(state => (
-            <div key={state.user} className="flex justify-start">
+            <div key={state.user} className="flex justify-start mb-4">
               <div className="break-words max-w-[85%] md:max-w-[75%]">
-                <div className="px-3 py-2 bg-[#1A1A1A]/50 text-gray-400 rounded-2xl rounded-bl-none">
+                <div className="px-4 py-3 bg-[#2A2640]/50 text-gray-400 rounded-[20px] rounded-bl-[5px]">
                   {state.text}
                 </div>
               </div>
@@ -228,7 +240,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
       {/* Chat Input */}
       {user && selectedChat && (
-        <div className="sticky bottom-0 left-0 right-0 z-10 bg-black border-t border-[#1A1A1A] px-4 py-2">
+        <div className="sticky bottom-0 left-0 right-0 z-10 bg-[#1E1B2E] border-t border-[#2A2640] px-4 py-3">
           <ChatInput
             selectedChatId={selectedChat.id}
             userId={user.uid}
@@ -239,4 +251,3 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     </div>
   );
 }
-

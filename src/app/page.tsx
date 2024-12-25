@@ -28,14 +28,13 @@ export default function WelcomePage() {
   const [username, setUsername] = useState("")
 
   const resetForms = () => {
-    setShowLoginForm(false)
-    setShowSignUpForm(false)
-    setLoginEmail("")
-    setLoginPassword("")
-    setSignUpEmail("")
-    setSignUpPassword("")
-    setUsername("")
-    setLoading(false)
+    if (showLoginForm) {
+      setShowLoginForm(false)
+      setShowSignUpForm(true)
+    } else {
+      setShowLoginForm(true)
+      setShowSignUpForm(false)
+    }
   }
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -115,7 +114,7 @@ export default function WelcomePage() {
             : 'opacity-0 invisible'
         }`}
       >
-        Back
+        {showLoginForm ? "Switch to Sign Up" : "Switch to Login"}
       </Button>
 
       <div className="w-full max-w-[320px] sm:max-w-[380px] md:max-w-[440px] flex flex-col items-center gap-6 sm:gap-8 lg:gap-10">
