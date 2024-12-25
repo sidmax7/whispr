@@ -4,6 +4,8 @@ import { User, createUserWithEmailAndPassword, signInWithEmailAndPassword, Googl
 import { useState, useEffect } from 'react';
 import { auth } from '@/app/lib/firebase';
 import { FirebaseError } from 'firebase/app';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/app/lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -28,6 +30,37 @@ export function useAuth(): AuthContextType {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Update online status when user connects
+    const userDoc = doc(db, 'users', user.uid);
+    updateDoc(userDoc, {
+      online: true,
+      lastSeen: serverTimestamp()
+    });
+
+    // Set up presence system
+    const presenceRef = doc(db, 'users', user.uid);
+    
+    // Handle disconnect
+    const onDisconnect = () => {
+      updateDoc(presenceRef, {
+        online: false,
+        lastSeen: serverTimestamp()
+      });
+    };
+
+    // Listen for window close/reload
+    window.addEventListener('beforeunload', onDisconnect);
+
+    return () => {
+      window.removeEventListener('beforeunload', onDisconnect);
+      // Update status when component unmounts
+      onDisconnect();
+    };
+  }, [user]);
 
   const signIn = async (email: string, password: string) => {
     try {

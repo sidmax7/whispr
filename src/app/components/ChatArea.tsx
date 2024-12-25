@@ -163,7 +163,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
   }
 
   return (
-    <div className="flex flex-col h-full w-full max-w-full overflow-x-hidden bg-[#1E1B2E]">
+    <div className="flex flex-col h-full w-full max-w-full overflow-x-hidden bg-[#2C2A42]">
       {/* Chat Header - Updated z-index and adjusted positioning */}
       <div className="sticky top-0 left-0 right-0 z-50 flex items-center px-4 py-3 border-b border-[#2A2640] bg-[#252436]">
         <button
@@ -240,7 +240,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
       {/* Chat Input */}
       {user && selectedChat && (
-        <div className="sticky bottom-0 left-0 right-0 z-10 bg-[#1E1B2E] border-t border-[#2A2640] px-4 py-3">
+        <div className="sticky bottom-0 left-0 right-0 z-10 bg-[#2C2A42] border-t border-[#2A2640] px-4 py-3">
           <ChatInput
             selectedChatId={selectedChat.id}
             userId={user.uid}

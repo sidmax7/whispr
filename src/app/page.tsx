@@ -69,10 +69,8 @@ export default function WelcomePage() {
         email: signUpEmail,
         lastMessage: "",
         lastSeen: serverTimestamp(),
-        messages: [],
+        online: true,
         photoURL: userCredential.photoURL || "",
-        status: "online",
-        timestamp: serverTimestamp(),
         uid: userCredential.uid,
         updatedAt: serverTimestamp()
       })

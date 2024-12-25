@@ -17,10 +17,16 @@ interface ChatListProps {
   onClose: () => void;
 }
 
+interface OnlineStatus {
+  online: boolean;
+  lastSeen: Timestamp;
+}
+
 export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatListProps) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [onlineStatuses, setOnlineStatuses] = useState<{[key: string]: OnlineStatus}>({});
   const { user, signOut } = useAuth();
   const router = useRouter();
 
@@ -76,6 +82,25 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
 
       return () => unsubscribe();
     }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const usersRef = collection(db, 'users');
+    const unsubscribe = onSnapshot(usersRef, (snapshot) => {
+      const statuses: {[key: string]: OnlineStatus} = {};
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        statuses[data.email] = {
+          online: data.online || false,
+          lastSeen: data.lastSeen
+        };
+      });
+      setOnlineStatuses(statuses);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
   const getChatUser = (chat: Chat) => {
@@ -250,20 +275,27 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
               onClick={() => onSelectChat(chat)}
             >
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-full bg-violet-600 flex items-center justify-center overflow-hidden">
-                  {otherUser?.photoURL ? (
-                    <Image
-                      src={otherUser.photoURL}
-                      alt={otherUser.displayName || otherUser.email}
-                      width={48}
-                      height={48}
-                      className="object-cover w-full h-full"
-                    />
-                  ) : (
-                    <span className="text-white text-lg font-medium">
-                      {(otherUser?.displayName || otherUser?.email || '?').charAt(0).toUpperCase()}
-                    </span>
-                  )}
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full bg-violet-600 flex items-center justify-center overflow-hidden">
+                    {otherUser?.photoURL ? (
+                      <Image
+                        src={otherUser.photoURL}
+                        alt={otherUser.displayName || otherUser.email}
+                        width={48}
+                        height={48}
+                        className="object-cover w-full h-full"
+                      />
+                    ) : (
+                      <span className="text-white text-lg font-medium">
+                        {(otherUser?.displayName || otherUser?.email || '?').charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#252436] ${
+                    otherUser?.email && onlineStatuses[otherUser.email]?.online
+                      ? 'bg-green-500' 
+                      : 'bg-gray-500'
+                  }`} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline">

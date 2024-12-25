@@ -9,6 +9,8 @@ export interface UserProfile {
   email: string;
   displayName: string | null;
   photoURL: string | null;
+  online?: boolean;
+  lastSeen?: Timestamp;
 }
 
 export interface Message {
