@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { Plus, Send, Mic } from 'lucide-react';
+import { IoIosSend } from 'react-icons/io';
 
 interface ChatInputProps {
   selectedChatId: string;
@@ -109,7 +110,7 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage }: Cha
             disabled={!newMessage.trim()}
             className="p-1.5 mr-2 rounded-full transition-colors bg-white hover:bg-[#363150] group"
           >
-            <Send className="w-5 h-5 text-[#2C2A42] group-hover:text-white" />
+            <IoIosSend className="w-5 h-5 text-[#2C2A42] group-hover:text-white" />
           </button>
         </div>
 

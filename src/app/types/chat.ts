@@ -1,8 +1,11 @@
 import { Timestamp } from 'firebase/firestore';
 
 export interface ChatUser {
+  uid?: string;
   email: string;
   displayName: string;
+  photoURL?: string;
+  lastSeen?: Timestamp;
 }
 
 export interface UserProfile {

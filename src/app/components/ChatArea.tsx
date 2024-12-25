@@ -4,7 +4,7 @@ import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import { Chat } from '../types/chat';
 import ChatInput from './ChatInput';
-import { Check } from 'lucide-react';
+import { Check, Circle } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -23,6 +23,14 @@ interface ChatAreaProps {
 interface TypingState {
   text: string;
   user: string;
+}
+
+interface User {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string;
+  lastSeen?: Timestamp;
 }
 
 export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps) {
@@ -136,6 +144,27 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     };
   }, [messages]);
 
+  const formatLastSeen = (timestamp: Timestamp | undefined) => {
+    if (!timestamp) return 'Offline';
+    
+    const now = new Date();
+    const lastSeen = timestamp.toDate();
+    const diffInMinutes = Math.floor((now.getTime() - lastSeen.getTime()) / (1000 * 60));
+    
+    // Consider user online if last seen within last 2 minutes
+    if (diffInMinutes < 2) return 'Online';
+    if (diffInMinutes < 60) return `Last seen ${diffInMinutes} minutes ago`;
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `Last seen ${diffInHours} hours ago`;
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays === 1) return 'Last seen yesterday';
+    if (diffInDays < 7) return `Last seen ${diffInDays} days ago`;
+    
+    return lastSeen.toLocaleDateString();
+  };
+
   if (!selectedChat) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#2C2A42] text-white p-4">
@@ -175,10 +204,40 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <div className="flex-1">
-          <h2 className="text-white font-medium text-lg">
-            {selectedChat.users.find(u => u.email !== user?.email)?.displayName || 'Chat'}
-          </h2>
+
+        <div className="flex items-center gap-3 flex-1">
+          <div className="relative">
+            {/* Avatar */}
+            {selectedChat.users.find(u => u.email !== user?.email)?.photoURL ? (
+              <img 
+                src={selectedChat.users.find(u => u.email !== user?.email)?.photoURL}
+                alt="Profile"
+                className="w-10 h-10 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-violet-500 flex items-center justify-center">
+                <span className="text-white text-lg font-medium">
+                  {selectedChat.users.find(u => u.email !== user?.email)?.displayName?.[0].toUpperCase()}
+                </span>
+              </div>
+            )}
+            
+            {/* Online status indicator */}
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-500 border-2 border-[#252436]"></span>
+          </div>
+
+          <div className="flex flex-col">
+            <h2 className="text-white font-medium text-lg leading-tight">
+              {selectedChat.users.find(u => u.email !== user?.email)?.displayName || 'Chat'}
+            </h2>
+            <span className="text-sm text-gray-400">
+              {selectedChat.users.find(u => u.email !== user?.email)?.lastSeen ? (
+                formatLastSeen(selectedChat.users.find(u => u.email !== user?.email)?.lastSeen)
+              ) : (
+                'Offline'
+              )}
+            </span>
+          </div>
         </div>
       </div>
 

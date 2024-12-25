@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
+import { User } from 'lucide-react';
 
 interface UserSearchProps {
   searchQuery: string;
@@ -35,30 +36,29 @@ export default function UserSearch({ searchQuery, onSelectUser, onClose }: UserS
   }, [searchQuery, user?.email]);
 
   return (
-    <div className="absolute top-full left-0 right-0 bg-black border border-[#1A1A1A] rounded-lg mt-2 shadow-lg">
+    <div className="absolute top-full left-0 right-0 bg-[#1E1B2E] border border-[#2A2640] rounded-lg mt-2 shadow-lg z-10">
       {users.map((user) => (
         <div
           key={user.email}
-          className="px-4 py-3 hover:bg-[#1A1A1A] cursor-pointer flex items-center space-x-3"
+          className="px-4 py-3 hover:bg-[#2A2640] cursor-pointer flex items-center space-x-3 transition-colors"
           onClick={() => {
             onSelectUser(user.email);
             onClose();
           }}
         >
-          <div className="w-10 h-10 rounded-full bg-[#1A1A1A] flex items-center justify-center">
-            <span className="text-white">
-              {user.email && user.email[0].toUpperCase()}
-            </span>
+          <div className="w-10 h-10 rounded-full bg-violet-600 flex items-center justify-center">
+            <User className="w-6 h-6 text-white" />
           </div>
           <span className="text-white">{user.email}</span>
         </div>
       ))}
       {users.length === 0 && searchQuery.length >= 3 && (
-        <div className="px-4 py-3 text-gray-500">No users found</div>
+        <div className="px-4 py-3 text-gray-400">No users found</div>
       )}
       {searchQuery.length < 3 && (
-        <div className="px-4 py-3 text-gray-500">Type at least 3 characters to search</div>
+        <div className="px-4 py-3 text-gray-400">Type at least 3 characters to search</div>
       )}
     </div>
   );
-} 
+}
+
