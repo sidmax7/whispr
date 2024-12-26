@@ -207,10 +207,9 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
         <div className="flex items-center gap-3 flex-1">
           <div className="relative">
-            {/* Avatar */}
-            {selectedChat.users.find(u => u.email !== user?.email)?.photoURL ? (
+            {selectedChat.userProfiles?.[selectedChat.users.find(u => u.email !== user?.email)?.email ?? '']?.photoURL ? (
               <img 
-                src={selectedChat.users.find(u => u.email !== user?.email)?.photoURL}
+                src={selectedChat.userProfiles[selectedChat.users.find(u => u.email !== user?.email)?.email ?? ''].photoURL ?? ''}
                 alt="Profile"
                 className="w-10 h-10 rounded-full object-cover"
               />

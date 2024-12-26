@@ -126,7 +126,7 @@ export default function Profile() {
         photoURL,
         updatedAt: serverTimestamp(),
       }, { merge: true });
-      router.push('/');
+      router.push('/dashboard');
     } catch (error) {
       console.error('Error updating profile:', error);
     } finally {
@@ -167,7 +167,7 @@ export default function Profile() {
                 <div className="w-32 h-32 rounded-full overflow-hidden bg-zinc-800">
                   {photoURL ? (
                     <Image
-                      src={photoURL}
+                      src={user?.photoURL || ''}
                       alt="Profile"
                       fill
                       className="object-cover"
@@ -221,7 +221,7 @@ export default function Profile() {
         <CardFooter className="flex justify-end space-x-4">
           <Button
             variant="outline"
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/dashboard')}
           >
             Cancel
           </Button>
