@@ -37,55 +37,26 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage, onTyp
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setNewMessage(text);
-
-    // Adjust textarea height
-    if (inputRef.current) {
-      if (text) {
-        inputRef.current.style.height = '44px';
-        inputRef.current.style.height = `${Math.min(Math.max(inputRef.current.scrollHeight, 44), 120)}px`;
-      } else {
-        inputRef.current.style.height = '44px';
-      }
-    }
-
-    // Handle typing state
+    
+    // Send typing state
     if (onTyping) {
       console.log('Handling typing state change:', text);
       onTyping(text);
-      
-      // Clear previous timeout
-      if (typingTimeout) {
-        clearTimeout(typingTimeout);
-      }
-
-      // Set new timeout to clear typing state
-      typingTimeout = setTimeout(() => {
-        console.log('Clearing typing state after timeout');
-        onTyping('');
-      }, 2000);
-    } else {
-      console.warn('onTyping callback not provided');
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newMessage.trim()) {
-      console.log('Submitting message:', newMessage);
-      await onSendMessage(newMessage);
-      if (onTyping) {
-        console.log('Clearing typing state after submit');
-        onTyping('');
-        if (typingTimeout) {
-          clearTimeout(typingTimeout);
-        }
-      }
-      setNewMessage('');
-      
-      // Reset textarea height
-      if (inputRef.current) {
-        inputRef.current.style.height = 'auto';
-      }
+    if (!newMessage.trim()) return;
+
+    console.log('Submitting message:', newMessage);
+    onSendMessage(newMessage.trim());
+    setNewMessage('');
+    
+    // Clear typing state after submit
+    if (onTyping) {
+      console.log('Clearing typing state after submit');
+      onTyping('');
     }
   };
 

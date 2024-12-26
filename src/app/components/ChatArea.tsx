@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, Timestamp, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, Timestamp, where, getDocs } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import { Chat } from '../types/chat';
@@ -14,6 +14,7 @@ interface Message {
   timestamp: Timestamp;
   read: boolean;
   readBy: string[];
+  isTyping?: boolean;
 }
 
 interface ChatAreaProps {
@@ -86,17 +87,19 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     return () => unsubscribe();
   }, [selectedChat, user?.email]);
 
-  // Listen for Firebase messages
+  // Listen for Firebase messages - only on initial load
   useEffect(() => {
     if (selectedChat) {
-      console.log('Setting up Firebase message listener for chat:', selectedChat.id);
+      console.log('Loading initial messages from Firebase for chat:', selectedChat.id);
       const q = query(
         collection(db, `chats/${selectedChat.id}/messages`), 
         orderBy('timestamp', 'asc')
       );
 
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const newMessages = snapshot.docs.map(doc => {
+      // One-time load of messages
+      const loadMessages = async () => {
+        const snapshot = await getDocs(q);
+        const loadedMessages = snapshot.docs.map(doc => {
           const data = doc.data();
           return {
             id: doc.id,
@@ -107,47 +110,56 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
             readBy: data.readBy || []
           } as Message;
         });
-        console.log('Received Firebase messages:', newMessages);
-        setMessages(prev => {
-          // Keep temporary messages that haven't been synced to Firebase yet
-          const tempMessages = prev.filter(msg => 
-            msg.id.startsWith('temp-') && 
-            !newMessages.some(newMsg => newMsg.text === msg.text && newMsg.sender === msg.sender)
-          );
-          return [...newMessages, ...tempMessages];
-        });
-      });
+        console.log('Loaded initial messages from Firebase:', loadedMessages);
+        setMessages(loadedMessages);
+      };
 
+      loadMessages();
+
+      // Cleanup function to save messages to Firebase when chat is closed
       return () => {
-        console.log('Cleaning up Firebase message listener');
-        unsubscribe();
+        console.log('Saving messages to Firebase before cleanup');
+        // Save any unsaved messages
+        messages.forEach(async (msg) => {
+          if (msg.id.startsWith('temp-')) {
+            try {
+              await addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
+                text: msg.text,
+                sender: msg.sender,
+                timestamp: msg.timestamp,
+                read: msg.read,
+                readBy: msg.readBy
+              });
+            } catch (error) {
+              console.error('Error saving message to Firebase:', error);
+            }
+          }
+        });
       };
     }
-  }, [selectedChat]);
+  }, [selectedChat?.id]); // Only run when chat changes
 
   // Listen for real-time messages
   useEffect(() => {
-    if (!selectedChat) return;
+    if (!selectedChat || !user?.uid) return;
 
     console.log('Setting up message listener for chat:', selectedChat.id);
     const cleanup = onMessageReceived((socketMessage: SocketMessage) => {
       console.log('Received real-time message:', socketMessage);
       if (socketMessage.chatId === selectedChat.id) {
-        // Add message to local state immediately
-        const tempMessage = {
+        // Add message to local state
+        const newMessage = {
           id: `temp-${Date.now()}`,
           text: socketMessage.text,
           sender: socketMessage.senderId,
-          timestamp: Timestamp.now(),
+          timestamp: Timestamp.fromDate(new Date(socketMessage.timestamp)),
           read: false,
           readBy: [socketMessage.senderId]
         };
-        console.log('Adding temp message:', tempMessage);
-        setMessages(prev => [...prev, tempMessage]);
+        setMessages(prev => [...prev, newMessage]);
 
-        // Only save to Firebase if we're the receiver
-        if (socketMessage.senderId !== user?.uid) {
-          console.log('Saving received message to Firebase');
+        // If we're the receiver, save to Firebase
+        if (socketMessage.senderId !== user.uid) {
           addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
             text: socketMessage.text,
             sender: socketMessage.senderId,
@@ -159,7 +171,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
             const chatRef = doc(db, 'chats', selectedChat.id);
             updateDoc(chatRef, {
               lastMessage: socketMessage.text,
-              timestamp: serverTimestamp()
+              lastMessageTime: serverTimestamp()
             });
           });
         }
@@ -167,55 +179,61 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     });
 
     return cleanup;
-  }, [selectedChat, onMessageReceived, user?.uid]);
+  }, [selectedChat, user?.uid, onMessageReceived]);
 
   // Listen for typing states
   useEffect(() => {
-    if (!selectedChat) return;
+    if (!selectedChat || !user?.uid) return;
 
     const handleTyping = ({ senderId, chatId, text }: { senderId: string; chatId: string; text: string }) => {
-      console.log('Received typing state:', { senderId, chatId, text });
-      if (chatId === selectedChat.id) {
+      if (chatId === selectedChat.id && senderId !== user.uid) {
+        console.log('Received typing state:', { senderId, chatId, text });
         setTypingStates(prev => {
-          const existing = prev.find(state => state.user === senderId);
-          if (existing) {
-            return prev.map(state => 
-              state.user === senderId ? { ...state, text } : state
-            );
-          }
-          return [...prev, { user: senderId, text }];
+          // Remove any existing state for this user
+          const filtered = prev.filter(state => state.user !== senderId);
+          // Add new state if there's text
+          return text ? [...filtered, { user: senderId, text }] : filtered;
         });
       }
     };
 
     const handleStopTyping = ({ senderId, chatId }: { senderId: string; chatId: string }) => {
-      console.log('Received stop typing:', { senderId, chatId });
-      if (chatId === selectedChat.id) {
+      if (chatId === selectedChat.id && senderId !== user.uid) {
+        console.log('Received stop typing:', { senderId, chatId });
         setTypingStates(prev => prev.filter(state => state.user !== senderId));
       }
     };
 
+    console.log('Setting up typing state listeners');
     const cleanupTyping = onTypingStateReceived(handleTyping);
     const cleanupStopTyping = onStopTypingReceived(handleStopTyping);
 
     return () => {
+      console.log('Cleaning up typing state listeners');
       cleanupTyping();
       cleanupStopTyping();
+      setTypingStates([]);
     };
-  }, [selectedChat, onTypingStateReceived, onStopTypingReceived]);
+  }, [selectedChat?.id, user?.uid, onTypingStateReceived, onStopTypingReceived]);
 
   // Mark messages as read
   useEffect(() => {
     if (selectedChat && user?.uid) {
       const unreadMessages = messages.filter(
-        msg => msg.sender !== user.uid && !msg.readBy.includes(user.uid)
+        msg => !msg.id.startsWith('temp-') && // Skip temporary messages
+        msg.sender !== user.uid && 
+        !msg.readBy.includes(user.uid)
       );
 
       unreadMessages.forEach(async (msg) => {
-        const messageRef = doc(db, `chats/${selectedChat.id}/messages/${msg.id}`);
-        await updateDoc(messageRef, {
-          readBy: arrayUnion(user.uid)
-        });
+        try {
+          const messageRef = doc(db, `chats/${selectedChat.id}/messages/${msg.id}`);
+          await updateDoc(messageRef, {
+            readBy: arrayUnion(user.uid)
+          });
+        } catch (error) {
+          console.error('Error marking message as read:', error);
+        }
       });
     }
   }, [messages, selectedChat, user?.uid]);
@@ -245,57 +263,42 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
   const handleSendMessage = async (messageText: string) => {
     if (selectedChat && user?.uid) {
       const otherUserId = getOtherUserId();
-      if (!otherUserId) {
-        console.error('Could not find other user ID');
-        return;
-      }
+      if (!otherUserId) return;
 
-      // Add message to local state immediately
-      setMessages(prev => [...prev, {
+      // Add message to local state with temporary ID
+      const tempMessage = {
         id: `temp-${Date.now()}`,
         text: messageText,
         sender: user.uid,
         timestamp: Timestamp.now(),
         read: false,
         readBy: [user.uid]
-      }]);
+      };
+      setMessages(prev => [...prev, tempMessage]);
 
-      // Send message through socket for real-time delivery
+      // Send through socket for real-time delivery
       console.log('Sending message to user:', otherUserId);
       sendMessage(otherUserId, messageText, selectedChat.id);
 
-      // Save message to Firebase (sender's copy)
-      const messageRef = await addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
-        text: messageText,
-        sender: user.uid,
-        timestamp: serverTimestamp(),
-        read: false,
-        readBy: [user.uid]
-      });
-
-      // Update the chat's lastMessage
+      // Update the chat's lastMessage in Firebase
       const chatRef = doc(db, 'chats', selectedChat.id);
       await updateDoc(chatRef, {
         lastMessage: messageText,
-        timestamp: serverTimestamp()
+        lastMessageTime: serverTimestamp()
       });
-
-      console.log('Message saved with ID:', messageRef.id);
     }
   };
 
   const handleTyping = (text: string) => {
     if (selectedChat && user?.uid) {
       const otherUserId = getOtherUserId();
-      if (!otherUserId) {
-        console.error('Could not find other user ID');
-        return;
-      }
+      if (!otherUserId) return;
 
-      console.log('Sending typing state to user:', otherUserId);
       if (text) {
+        console.log('Sending typing state:', { otherUserId, text });
         sendTypingState(otherUserId, selectedChat.id, text);
       } else {
+        console.log('Sending stop typing:', { otherUserId });
         stopTyping(otherUserId, selectedChat.id);
       }
     }
@@ -320,6 +323,28 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     if (diffInDays < 7) return `Last seen ${diffInDays} days ago`;
     
     return lastSeen.toLocaleDateString();
+  };
+
+  // Render messages and typing states
+  const renderMessagesAndTypingStates = () => {
+    const allItems = [...messages];
+    
+    // Add typing states as ghost messages at the end
+    typingStates.forEach(state => {
+      if (state.text) {  // Only add if there's text
+        allItems.push({
+          id: `typing-${state.user}`,
+          text: state.text,
+          sender: state.user,
+          timestamp: Timestamp.now(),
+          read: false,
+          readBy: [],
+          isTyping: true
+        });
+      }
+    });
+
+    return allItems;
   };
 
   if (!selectedChat) {
@@ -397,7 +422,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         </div>
       </div>
 
-      {/* Messages - Updated padding to account for header */}
+      {/* Messages and typing states */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-20">
         {messages.map((message) => (
           <div
@@ -410,8 +435,10 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
               <div
                 className={`px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-all ${
                   message.sender === user?.uid
-                    ? 'bg-[#584ACB] text-white rounded-[20px] rounded-br-[5px]'
-                    : 'bg-[#413F51] text-white rounded-[20px] rounded-bl-[5px]'
+                    ? 'bg-[#584ACB] text-white'
+                    : 'bg-[#413F51] text-white'
+                } rounded-[20px] ${
+                  message.sender === user?.uid ? 'rounded-br-[5px]' : 'rounded-bl-[5px]'
                 }`}
               >
                 {message.text}
@@ -439,17 +466,17 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         ))}
 
         {/* Typing indicators */}
-        {typingStates
-          .filter(state => state.user !== user?.uid && state.text)
-          .map(state => (
-            <div key={state.user} className="flex justify-start mb-4">
-              <div className="break-words max-w-[85%] md:max-w-[75%]">
-                <div className="px-4 py-3 bg-[#2A2640]/50 text-gray-400 rounded-[20px] rounded-bl-[5px]">
+        {typingStates.map(state => (
+          state.text && (
+            <div key={`typing-${state.user}`} className="flex justify-start mb-4">
+              <div className="break-words max-w-[85%] md:max-w-[75%] w-fit animate-pulse">
+                <div className="px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-all bg-[#2A2640]/50 text-gray-400 rounded-[20px] rounded-bl-[5px]">
                   {state.text}
                 </div>
               </div>
             </div>
-          ))}
+          )
+        ))}
         <div ref={messagesEndRef} />
       </div>
 
