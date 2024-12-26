@@ -1,6 +1,4 @@
 import { useRef, useEffect, useState } from 'react';
-import { doc, deleteDoc, setDoc } from 'firebase/firestore';
-import { db } from '@/app/lib/firebase';
 import { Plus, Mic } from 'lucide-react';
 import { IoIosSend } from 'react-icons/io';
 
@@ -8,16 +6,18 @@ interface ChatInputProps {
   selectedChatId: string;
   userId: string;
   onSendMessage: (message: string) => Promise<void>;
+  onTyping?: (text: string) => void;
 }
 
-export default function ChatInput({ selectedChatId, userId, onSendMessage }: ChatInputProps) {
+let typingTimeout: NodeJS.Timeout;
+
+export default function ChatInput({ selectedChatId, userId, onSendMessage, onTyping }: ChatInputProps) {
   const [newMessage, setNewMessage] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Keep focus on input
   useEffect(() => {
     const keepFocus = (e: MouseEvent | TouchEvent) => {
-      // Check if the click is on the hamburger button
       const target = e.target as HTMLElement;
       if (target.closest('[aria-label="Open chat list"]')) {
         return;
@@ -34,11 +34,11 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage }: Cha
     };
   }, []);
 
-  const handleMessageChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setNewMessage(text);
 
-    // Adjust textarea height only when there's content
+    // Adjust textarea height
     if (inputRef.current) {
       if (text) {
         inputRef.current.style.height = '44px';
@@ -48,20 +48,38 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage }: Cha
       }
     }
 
-    const typingRef = doc(db, `chats/${selectedChatId}/typing`, userId);
-    if (text) {
-      await setDoc(typingRef, { text }, { merge: true });
+    // Handle typing state
+    if (onTyping) {
+      console.log('Handling typing state change:', text);
+      onTyping(text);
+      
+      // Clear previous timeout
+      if (typingTimeout) {
+        clearTimeout(typingTimeout);
+      }
+
+      // Set new timeout to clear typing state
+      typingTimeout = setTimeout(() => {
+        console.log('Clearing typing state after timeout');
+        onTyping('');
+      }, 2000);
     } else {
-      await deleteDoc(typingRef);
+      console.warn('onTyping callback not provided');
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newMessage.trim()) {
+      console.log('Submitting message:', newMessage);
       await onSendMessage(newMessage);
-      const typingRef = doc(db, `chats/${selectedChatId}/typing`, userId);
-      await deleteDoc(typingRef);
+      if (onTyping) {
+        console.log('Clearing typing state after submit');
+        onTyping('');
+        if (typingTimeout) {
+          clearTimeout(typingTimeout);
+        }
+      }
       setNewMessage('');
       
       // Reset textarea height

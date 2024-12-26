@@ -101,13 +101,48 @@ export default function Profile() {
       // Update user document in Firestore
       const userRef = doc(db, 'users', user!.uid);
       await updateDoc(userRef, {
-        displayName: newDisplayName
+        displayName: newDisplayName,
+        uid: user!.uid,
+        email: user!.email,
+        updatedAt: serverTimestamp()
       });
 
       // Update all chats containing this user
-      await updateUserChats(newDisplayName);
+      const chatsQuery = query(
+        collection(db, 'chats'),
+        where('users', 'array-contains', { email: user!.email })
+      );
 
-      // ... rest of your profile update logic
+      const chatsSnapshot = await getDocs(chatsQuery);
+      const batch = writeBatch(db);
+      
+      chatsSnapshot.docs.forEach((chatDoc) => {
+        const chatData = chatDoc.data();
+        
+        const updatedUsers = chatData.users.map((u: ChatUser) => 
+          u.email === user!.email ? { 
+            ...u, 
+            displayName: newDisplayName,
+            uid: user!.uid
+          } : u
+        );
+
+        const updatedUserProfiles = {
+          ...chatData.userProfiles,
+          [user!.email as string]: {
+            ...chatData.userProfiles[user!.email as string],
+            displayName: newDisplayName,
+            uid: user!.uid
+          }
+        };
+
+        batch.update(chatDoc.ref, {
+          users: updatedUsers,
+          userProfiles: updatedUserProfiles
+        });
+      });
+
+      await batch.commit();
     } catch (error) {
       console.error('Error updating profile:', error);
     }
@@ -124,6 +159,7 @@ export default function Profile() {
         email: user.email,
         displayName,
         photoURL,
+        uid: user.uid,
         updatedAt: serverTimestamp(),
       }, { merge: true });
       router.push('/dashboard');

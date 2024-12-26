@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, Timestamp, where } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import { Chat } from '../types/chat';
 import ChatInput from './ChatInput';
-import { Check} from 'lucide-react';
+import { Check } from 'lucide-react';
+import { useSocket, Message as SocketMessage } from '../hooks/useSocket';
 
 interface Message {
   id: string;
@@ -12,7 +13,7 @@ interface Message {
   sender: string;
   timestamp: Timestamp;
   read: boolean;
-  readBy: string[];  // Array of user IDs who have read the message
+  readBy: string[];
 }
 
 interface ChatAreaProps {
@@ -25,53 +26,191 @@ interface TypingState {
   user: string;
 }
 
+interface UserProfile {
+  email: string;
+  uid: string;
+  displayName: string;
+  photoURL: string | null;
+  online: boolean;
+  lastSeen: Timestamp | undefined;
+}
 
 export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [typingStates, setTypingStates] = useState<TypingState[]>([]);
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { 
+    sendMessage, 
+    onMessageReceived, 
+    sendTypingState, 
+    stopTyping, 
+    onTypingStateReceived, 
+    onStopTypingReceived 
+  } = useSocket();
+  const [otherUserProfile, setOtherUserProfile] = useState<UserProfile | null>(null);
 
+  // Get the other user's ID
+  const getOtherUserId = useCallback(() => {
+    if (!selectedChat || !user) return null;
+    const otherUser = selectedChat.participants.find(p => p.email !== user.email);
+    return otherUser?.uid;
+  }, [selectedChat, user]);
+
+  // Fetch other user's profile
+  useEffect(() => {
+    if (!selectedChat || !user?.email) return;
+    
+    const otherParticipant = selectedChat.participants.find(p => p.email !== user.email);
+    if (!otherParticipant) return;
+
+    const userDoc = query(
+      collection(db, 'users'),
+      where('email', '==', otherParticipant.email)
+    );
+
+    const unsubscribe = onSnapshot(userDoc, (snapshot) => {
+      if (!snapshot.empty) {
+        const userData = snapshot.docs[0].data();
+        setOtherUserProfile({
+          email: otherParticipant.email,
+          uid: otherParticipant.uid,
+          displayName: userData.displayName || otherParticipant.email.split('@')[0],
+          photoURL: userData.photoURL || null,
+          online: userData.online || false,
+          lastSeen: userData.lastSeen
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedChat, user?.email]);
+
+  // Listen for Firebase messages
   useEffect(() => {
     if (selectedChat) {
-      const q = query(collection(db, `chats/${selectedChat.id}/messages`), orderBy('timestamp'));
+      console.log('Setting up Firebase message listener for chat:', selectedChat.id);
+      const q = query(
+        collection(db, `chats/${selectedChat.id}/messages`), 
+        orderBy('timestamp', 'asc')
+      );
+
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        setMessages(
-          snapshot.docs.map(doc => ({
+        const newMessages = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
             id: doc.id,
-            ...(doc.data() as Omit<Message, 'id'>)
-          }))
-        );
+            text: data.text,
+            sender: data.sender,
+            timestamp: data.timestamp,
+            read: data.read || false,
+            readBy: data.readBy || []
+          } as Message;
+        });
+        console.log('Received Firebase messages:', newMessages);
+        setMessages(prev => {
+          // Keep temporary messages that haven't been synced to Firebase yet
+          const tempMessages = prev.filter(msg => 
+            msg.id.startsWith('temp-') && 
+            !newMessages.some(newMsg => newMsg.text === msg.text && newMsg.sender === msg.sender)
+          );
+          return [...newMessages, ...tempMessages];
+        });
       });
 
-      return () => unsubscribe();
+      return () => {
+        console.log('Cleaning up Firebase message listener');
+        unsubscribe();
+      };
     }
   }, [selectedChat]);
+
+  // Listen for real-time messages
+  useEffect(() => {
+    if (!selectedChat) return;
+
+    console.log('Setting up message listener for chat:', selectedChat.id);
+    const cleanup = onMessageReceived((socketMessage: SocketMessage) => {
+      console.log('Received real-time message:', socketMessage);
+      if (socketMessage.chatId === selectedChat.id) {
+        // Add message to local state immediately
+        const tempMessage = {
+          id: `temp-${Date.now()}`,
+          text: socketMessage.text,
+          sender: socketMessage.senderId,
+          timestamp: Timestamp.now(),
+          read: false,
+          readBy: [socketMessage.senderId]
+        };
+        console.log('Adding temp message:', tempMessage);
+        setMessages(prev => [...prev, tempMessage]);
+
+        // Only save to Firebase if we're the receiver
+        if (socketMessage.senderId !== user?.uid) {
+          console.log('Saving received message to Firebase');
+          addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
+            text: socketMessage.text,
+            sender: socketMessage.senderId,
+            timestamp: serverTimestamp(),
+            read: false,
+            readBy: [socketMessage.senderId]
+          }).then(() => {
+            // Update the chat's lastMessage
+            const chatRef = doc(db, 'chats', selectedChat.id);
+            updateDoc(chatRef, {
+              lastMessage: socketMessage.text,
+              timestamp: serverTimestamp()
+            });
+          });
+        }
+      }
+    });
+
+    return cleanup;
+  }, [selectedChat, onMessageReceived, user?.uid]);
 
   // Listen for typing states
   useEffect(() => {
-    if (selectedChat) {
-      const typingRef = collection(db, `chats/${selectedChat.id}/typing`);
-      const unsubscribe = onSnapshot(typingRef, (snapshot) => {
-        const states = snapshot.docs.map(doc => ({
-          user: doc.id,
-          text: doc.data().text
-        }));
-        setTypingStates(states);
-      });
+    if (!selectedChat) return;
 
-      return () => unsubscribe();
-    }
-  }, [selectedChat]);
+    const handleTyping = ({ senderId, chatId, text }: { senderId: string; chatId: string; text: string }) => {
+      console.log('Received typing state:', { senderId, chatId, text });
+      if (chatId === selectedChat.id) {
+        setTypingStates(prev => {
+          const existing = prev.find(state => state.user === senderId);
+          if (existing) {
+            return prev.map(state => 
+              state.user === senderId ? { ...state, text } : state
+            );
+          }
+          return [...prev, { user: senderId, text }];
+        });
+      }
+    };
 
-  // Mark messages as read when they're viewed
+    const handleStopTyping = ({ senderId, chatId }: { senderId: string; chatId: string }) => {
+      console.log('Received stop typing:', { senderId, chatId });
+      if (chatId === selectedChat.id) {
+        setTypingStates(prev => prev.filter(state => state.user !== senderId));
+      }
+    };
+
+    const cleanupTyping = onTypingStateReceived(handleTyping);
+    const cleanupStopTyping = onStopTypingReceived(handleStopTyping);
+
+    return () => {
+      cleanupTyping();
+      cleanupStopTyping();
+    };
+  }, [selectedChat, onTypingStateReceived, onStopTypingReceived]);
+
+  // Mark messages as read
   useEffect(() => {
     if (selectedChat && user?.uid) {
       const unreadMessages = messages.filter(
         msg => msg.sender !== user.uid && !msg.readBy.includes(user.uid)
       );
 
-      // Update read status for unread messages
       unreadMessages.forEach(async (msg) => {
         const messageRef = doc(db, `chats/${selectedChat.id}/messages/${msg.id}`);
         await updateDoc(messageRef, {
@@ -81,54 +220,20 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     }
   }, [messages, selectedChat, user?.uid]);
 
-  // Add this effect to maintain focus
-  useEffect(() => {
-    const keepFocus = () => {
-      messagesEndRef.current?.focus();
-    };
-
-    // Keep focus when component mounts
-    keepFocus();
-
-    // Add event listeners to maintain focus
-    document.addEventListener('click', keepFocus);
-    document.addEventListener('touchend', keepFocus);
-
-    return () => {
-      document.removeEventListener('click', keepFocus);
-      document.removeEventListener('touchend', keepFocus);
-    };
-  }, [selectedChat]);
-
-  const handleSendMessage = async (messageText: string) => {
-    if (selectedChat && user?.uid) {
-      await addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
-        text: messageText,
-        sender: user.uid,
-        timestamp: serverTimestamp(),
-        read: false,
-        readBy: [user.uid]
-      });
-    }
-  };
-
-  // Scroll to bottom when new messages arrive or when keyboard appears/disappears
+  // Scroll to bottom
   useEffect(() => {
     const scrollToBottom = () => {
       if (messagesEndRef.current) {
-        // Use requestAnimationFrame to ensure DOM has updated
         requestAnimationFrame(() => {
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         });
       }
     };
 
-    // Listen for viewport height changes (keyboard appearing/disappearing)
     const handleResize = () => {
       scrollToBottom();
     };
 
-    // Add event listeners
     window.addEventListener('resize', handleResize);
     scrollToBottom();
 
@@ -136,6 +241,65 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
       window.removeEventListener('resize', handleResize);
     };
   }, [messages]);
+
+  const handleSendMessage = async (messageText: string) => {
+    if (selectedChat && user?.uid) {
+      const otherUserId = getOtherUserId();
+      if (!otherUserId) {
+        console.error('Could not find other user ID');
+        return;
+      }
+
+      // Add message to local state immediately
+      setMessages(prev => [...prev, {
+        id: `temp-${Date.now()}`,
+        text: messageText,
+        sender: user.uid,
+        timestamp: Timestamp.now(),
+        read: false,
+        readBy: [user.uid]
+      }]);
+
+      // Send message through socket for real-time delivery
+      console.log('Sending message to user:', otherUserId);
+      sendMessage(otherUserId, messageText, selectedChat.id);
+
+      // Save message to Firebase (sender's copy)
+      const messageRef = await addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
+        text: messageText,
+        sender: user.uid,
+        timestamp: serverTimestamp(),
+        read: false,
+        readBy: [user.uid]
+      });
+
+      // Update the chat's lastMessage
+      const chatRef = doc(db, 'chats', selectedChat.id);
+      await updateDoc(chatRef, {
+        lastMessage: messageText,
+        timestamp: serverTimestamp()
+      });
+
+      console.log('Message saved with ID:', messageRef.id);
+    }
+  };
+
+  const handleTyping = (text: string) => {
+    if (selectedChat && user?.uid) {
+      const otherUserId = getOtherUserId();
+      if (!otherUserId) {
+        console.error('Could not find other user ID');
+        return;
+      }
+
+      console.log('Sending typing state to user:', otherUserId);
+      if (text) {
+        sendTypingState(otherUserId, selectedChat.id, text);
+      } else {
+        stopTyping(otherUserId, selectedChat.id);
+      }
+    }
+  };
 
   const formatLastSeen = (timestamp: Timestamp | undefined) => {
     if (!timestamp) return 'Offline';
@@ -200,34 +364,34 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
         <div className="flex items-center gap-3 flex-1">
           <div className="relative">
-            {selectedChat.userProfiles?.[selectedChat.users.find(u => u.email !== user?.email)?.email ?? '']?.photoURL ? (
+            {otherUserProfile?.photoURL ? (
               <img 
-                src={selectedChat.userProfiles[selectedChat.users.find(u => u.email !== user?.email)?.email ?? ''].photoURL ?? ''}
+                src={otherUserProfile.photoURL}
                 alt="Profile"
                 className="w-10 h-10 rounded-full object-cover"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = '/assets/default-avatar.png';
+                }}
               />
             ) : (
               <div className="w-10 h-10 rounded-full bg-violet-500 flex items-center justify-center">
                 <span className="text-white text-lg font-medium">
-                  {selectedChat.users.find(u => u.email !== user?.email)?.displayName?.[0].toUpperCase()}
+                  {otherUserProfile?.displayName?.[0].toUpperCase() || '?'}
                 </span>
               </div>
             )}
             
             {/* Online status indicator */}
-            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-500 border-2 border-[#252436]"></span>
+            <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full bg-${otherUserProfile?.online ? 'green' : 'gray'}-500 border-2 border-[#252436]`}></span>
           </div>
 
           <div className="flex flex-col">
             <h2 className="text-white font-medium text-lg leading-tight">
-              {selectedChat.users.find(u => u.email !== user?.email)?.displayName || 'Chat'}
+              {otherUserProfile?.displayName || 'Chat'}
             </h2>
             <span className="text-sm text-gray-400">
-              {selectedChat.users.find(u => u.email !== user?.email)?.lastSeen ? (
-                formatLastSeen(selectedChat.users.find(u => u.email !== user?.email)?.lastSeen)
-              ) : (
-                'Offline'
-              )}
+              {otherUserProfile?.lastSeen ? formatLastSeen(otherUserProfile.lastSeen) : 'Offline'}
             </span>
           </div>
         </div>
@@ -296,6 +460,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
             selectedChatId={selectedChat.id}
             userId={user.uid}
             onSendMessage={handleSendMessage}
+            onTyping={handleTyping}
           />
         </div>
       )}

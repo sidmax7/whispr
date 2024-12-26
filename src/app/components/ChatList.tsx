@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, where, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, addDoc, serverTimestamp, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import UserSearch from './UserSearch';
@@ -36,16 +36,19 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
   const fetchUserProfiles = async (chat: Chat) => {
     const userProfiles: { [key: string]: UserProfile } = {};
     
-    for (const user of chat.users) {
-      const q = query(collection(db, 'users'), where('email', '==', user.email));
+    for (const participant of chat.participants) {
+      const q = query(collection(db, 'users'), where('email', '==', participant.email));
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
         const userData = querySnapshot.docs[0].data();
-        userProfiles[user.email] = {
-          email: user.email,
+        userProfiles[participant.email] = {
+          email: participant.email,
           displayName: userData.displayName || null,
           photoURL: userData.photoURL || null,
+          uid: userData.uid || participant.email,
+          online: userData.online || false,
+          lastSeen: userData.lastSeen || serverTimestamp()
         };
       }
     }
@@ -55,32 +58,37 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
 
   useEffect(() => {
     if (user?.email) {
+      console.log('Setting up chat listener for user:', user);
+      
       const q = query(
         collection(db, 'chats'),
-        where('users', 'array-contains', { 
-          email: user.email, 
-          displayName: user.displayName || '' 
+        where('participants', 'array-contains', {
+          uid: user.uid,
+          email: user.email
         })
       );
+
+      console.log('Chat query:', q);
       
       const unsubscribe = onSnapshot(q, async (snapshot) => {
-        const chatsWithProfiles = await Promise.all(
-          snapshot.docs.map(async (doc) => {
-            const chatData = doc.data() as Omit<Chat, 'id'>;
-            const userProfiles = await fetchUserProfiles({
-              id: doc.id,
-              ...chatData,
-            });
-            
-            return {
-              id: doc.id,
-              ...chatData,
-              userProfiles,
-            };
-          })
-        );
+        console.log('Chat snapshot received:', snapshot.docs.length, 'chats');
+        console.log('Snapshot docs:', snapshot.docs.map(doc => ({ id: doc.id, data: doc.data() })));
         
-        setChats(chatsWithProfiles);
+        const chatsData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            participants: data.participants || [],
+            lastMessage: data.lastMessage || '',
+            lastMessageTime: data.lastMessageTime || serverTimestamp(),
+            createdAt: data.createdAt || serverTimestamp()
+          } as Chat;
+        });
+        
+        console.log('Setting chats:', chatsData);
+        setChats(chatsData);
+      }, (error) => {
+        console.error('Error in chat listener:', error);
       });
 
       return () => unsubscribe();
@@ -115,7 +123,7 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
         const url = await getDownloadURL(photoRef);
         setUserPhotoURL(url);
       } catch (error) {
-        console.error('Error fetching profile picture:', error);
+        console.log('No profile picture found, using default');
         setUserPhotoURL(null);
       }
     };
@@ -123,11 +131,40 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
     fetchUserPhoto();
   }, [user?.uid]);
 
-  const getChatUser = (chat: Chat) => {
-    if (!user?.email || !chat.users) return null;
-    const otherUser = chat.users.find(u => u.email !== user.email);
-    if (!otherUser || !chat.userProfiles) return null;
-    return chat.userProfiles[otherUser.email];
+  const getChatUser = async (chat: Chat) => {
+    if (!user?.email) return null;
+    const otherParticipant = chat.participants.find(p => p.email !== user.email);
+    if (!otherParticipant) return null;
+    
+    // Type assertion since email is required in Participant interface
+    const email: string = otherParticipant.email;
+    
+    // Fetch user profile from users collection
+    const userDoc = await getDocs(query(
+      collection(db, 'users'),
+      where('email', '==', email)
+    ));
+    
+    if (!userDoc.empty) {
+      const userData = userDoc.docs[0].data();
+      return {
+        email: otherParticipant.email,
+        uid: otherParticipant.uid,
+        displayName: userData.displayName || otherParticipant.email.split('@')[0],
+        photoURL: userData.photoURL || null,
+        online: userData.online || false,
+        lastSeen: userData.lastSeen
+      };
+    }
+    
+    return {
+      email: otherParticipant.email,
+      uid: otherParticipant.uid,
+      displayName: otherParticipant.email.split('@')[0],
+      photoURL: null,
+      online: false,
+      lastSeen: null
+    };
   };
 
   const handleSelectUser = async (recipientEmail: string) => {
@@ -141,86 +178,169 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
     
     const recipientData = recipientQuery.docs[0]?.data() || {
       displayName: recipientEmail.split('@')[0],
-      photoURL: null
+      email: recipientEmail,
+      uid: recipientEmail
     };
 
-    // Get current user's profile to ensure we have latest display name
-    const currentUserQuery = await getDocs(query(
-      collection(db, 'users'),
-      where('email', '==', user.email)
-    ));
-
-    const currentUserData = currentUserQuery.docs[0]?.data() || {
-      displayName: user.displayName || user.email?.split('@')[0],
-      photoURL: user.photoURL
-    };
-
+    // Simplified chat data structure
     const chatData = {
-      users: [
+      participants: [
         { 
-          email: user.email, 
-          displayName: currentUserData.displayName || user.email.split('@')[0]  // Use current user's display name
+          uid: user.uid,
+          email: user.email
         },
         { 
-          email: recipientEmail, 
-          displayName: recipientData.displayName || recipientEmail.split('@')[0] 
+          uid: recipientData.uid,
+          email: recipientEmail
         }
       ],
-      createdAt: serverTimestamp(),
-      messages: [],
       lastMessage: '',
-      timestamp: serverTimestamp(),
-      userProfiles: {
-        [user.email as string]: {
-          email: user.email,
-          displayName: currentUserData.displayName || user.email.split('@')[0],
-          photoURL: currentUserData.photoURL
-        },
-        [recipientEmail]: {
-          email: recipientEmail,
-          displayName: recipientData.displayName || recipientEmail.split('@')[0],
-          photoURL: recipientData.photoURL
-        }
-      }
+      lastMessageTime: serverTimestamp(),
+      createdAt: serverTimestamp()
     };
 
     // Check if chat already exists
-    const existingChat = chats.find(chat => 
-      chat.users.some(u => u.email === recipientEmail) && 
-      chat.users.some(u => u.email === user.email)
-    );
+    const existingChat = chats.find(chat => {
+      const participantEmails = chat.participants.map(p => p.email);
+      return participantEmails.includes(recipientEmail) && participantEmails.includes(user.email!);
+    });
 
     if (existingChat) {
+      console.log('Found existing chat:', existingChat.id);
       onSelectChat(existingChat);
     } else {
-      const chatRef = await addDoc(collection(db, 'chats'), chatData);
+      // Check in Firebase for existing chat
+      const chatsRef = collection(db, 'chats');
+      const userChatsQuery = query(
+        chatsRef,
+        where('participants', 'array-contains', {
+          uid: user.uid,
+          email: user.email
+        })
+      );
+      
+      const querySnapshot = await getDocs(userChatsQuery);
+      const existingFirebaseChat = querySnapshot.docs.find(doc => {
+        const data = doc.data();
+        return data.participants.some((p: any) => p.email === recipientEmail);
+      });
 
-      const newChat: Chat = {
-        id: chatRef.id,
-        ...chatData,
-        timestamp: serverTimestamp() as unknown as Timestamp
-      };
+      if (existingFirebaseChat) {
+        console.log('Found existing chat in Firebase:', existingFirebaseChat.id);
+        const chatData = existingFirebaseChat.data();
+        const chat: Chat = {
+          id: existingFirebaseChat.id,
+          participants: chatData.participants,
+          lastMessage: chatData.lastMessage || '',
+          lastMessageTime: chatData.lastMessageTime,
+          createdAt: chatData.createdAt
+        };
+        onSelectChat(chat);
+      } else {
+        console.log('Creating new chat with:', recipientEmail);
+        const chatRef = await addDoc(collection(db, 'chats'), chatData);
 
-      onSelectChat(newChat);
+        const newChat: Chat = {
+          id: chatRef.id,
+          participants: chatData.participants,
+          lastMessage: '',
+          lastMessageTime: serverTimestamp() as unknown as Timestamp,
+          createdAt: serverTimestamp() as unknown as Timestamp
+        };
+
+        onSelectChat(newChat);
+      }
     }
   };
 
-  const getUnreadCount = (chat: Chat) => {
+  const getUnreadCount = async (chat: Chat) => {
     if (!user?.uid) return 0;
-    return (chat.messages || []).filter(
-      msg => msg.sender !== user.uid && !msg.readBy.includes(user.uid)
-    ).length;
+    
+    // Get unread messages from messages subcollection
+    const messagesRef = collection(db, `chats/${chat.id}/messages`);
+    const q = query(
+      messagesRef,
+      where('senderId', '!=', user.uid),
+      where('read', '==', false)
+    );
+    
+    const snapshot = await getDocs(q);
+    return snapshot.docs.length;
   };
 
   const sortedChats = [...chats].sort((a, b) => {
-    if (!a.timestamp || !b.timestamp) return 0;
-    // Firestore timestamps can be compared directly
-    return b.timestamp.toMillis() - a.timestamp.toMillis();
+    if (!a.lastMessageTime || !b.lastMessageTime) return 0;
+    return b.lastMessageTime.toMillis() - a.lastMessageTime.toMillis();
   });
 
-  
+  const ChatItem = ({ chat }: { chat: Chat }) => {
+    const [otherUser, setOtherUser] = useState<any>(null);
+    const [unreadCount, setUnreadCount] = useState(0);
 
+    useEffect(() => {
+      const loadUserData = async () => {
+        const userData = await getChatUser(chat);
+        setOtherUser(userData);
+        const count = await getUnreadCount(chat);
+        setUnreadCount(count);
+      };
+      loadUserData();
+    }, [chat]);
 
+    if (!otherUser) return null;
+
+    return (
+      <div
+        key={chat.id}
+        className={`px-4 py-2 cursor-pointer hover:bg-[#2A2640] transition-colors ${
+          selectedChat?.id === chat.id ? 'bg-[#2C2A42]' : ''
+        }`}
+        onClick={() => onSelectChat(chat)}
+      >
+        <div className="flex items-center space-x-3">
+          <div className="relative">
+            <div className="w-10 h-10 rounded-full bg-[#6C5DD3] flex items-center justify-center overflow-hidden">
+              {otherUser.photoURL ? (
+                <Image
+                  src={otherUser.photoURL}
+                  alt={otherUser.displayName || otherUser.email}
+                  width={40}
+                  height={40}
+                  className="object-cover w-full h-full rounded-full"
+                  priority
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <span className="text-white text-base font-medium">
+                  {(otherUser.displayName || otherUser.email || '?').charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#252436] ${
+              otherUser.online ? 'bg-green-500' : 'bg-gray-500'
+            }`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-baseline">
+              <h3 className="text-white font-medium text-sm truncate">
+                {otherUser.displayName || otherUser.email?.split('@')[0] || 'Unknown User'}
+              </h3>
+            </div>
+            {chat.lastMessage && (
+              <p className="text-gray-400 text-xs truncate">
+                {chat.lastMessage}
+              </p>
+            )}
+          </div>
+          {unreadCount > 0 && (
+            <span className="bg-[#6C5DD3] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center ml-2">
+              {unreadCount}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#252436] w-full overflow-hidden">
@@ -284,63 +404,9 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
       </div>
 
       <div className="flex-1 overflow-y-auto mt-4">
-        {sortedChats.map((chat) => {
-          const otherUser = getChatUser(chat);
-          
-          return (
-            <div
-              key={chat.id}
-              className={`px-4 py-2 cursor-pointer hover:bg-[#2A2640] transition-colors ${
-                selectedChat?.id === chat.id ? 'bg-[#2C2A42]' : ''
-              }`}
-              onClick={() => onSelectChat(chat)}
-            >
-              <div className="flex items-center space-x-3">
-                <div className="relative">
-                  <div className="w-10 h-10 rounded-full bg-[#6C5DD3] flex items-center justify-center overflow-hidden">
-                    {otherUser?.photoURL ? (
-                      <Image
-                        src={otherUser.photoURL}
-                        alt={otherUser.displayName || otherUser.email}
-                        width={40}
-                        height={40}
-                        className="object-cover w-full h-full rounded-full"
-                        priority
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <span className="text-white text-base font-medium">
-                        {(otherUser?.displayName || otherUser?.email || '?').charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#252436] ${
-                    otherUser?.email && onlineStatuses[otherUser.email]?.online
-                      ? 'bg-green-500' 
-                      : 'bg-gray-500'
-                  }`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline">
-                    <h3 className="text-white font-medium text-sm truncate">
-                      {otherUser?.displayName || otherUser?.email.split('@')[0] || 'Unknown User'}
-                    </h3>
-                  </div>
-                  {chat.lastMessage && (
-                    <p className="text-gray-400 text-xs truncate">
-                      {chat.lastMessage}
-                    </p>
-                  )}
-                </div>
-                {getUnreadCount(chat) > 0 && (
-                  <span className="bg-[#6C5DD3] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center ml-2">
-                    {getUnreadCount(chat)}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {sortedChats.map((chat) => (
+          <ChatItem key={chat.id} chat={chat} />
+        ))}
       </div>
 
       <div className="mt-auto border-t border-[#2A2640] p-2">
