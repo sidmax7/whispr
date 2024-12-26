@@ -99,42 +99,27 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
       // One-time load of messages
       const loadMessages = async () => {
-        const snapshot = await getDocs(q);
-        const loadedMessages = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            text: data.text,
-            sender: data.sender,
-            timestamp: data.timestamp,
-            read: data.read || false,
-            readBy: data.readBy || []
-          } as Message;
-        });
-        setMessages(loadedMessages);
+        try {
+          const snapshot = await getDocs(q);
+          const loadedMessages = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              text: data.text,
+              sender: data.sender,
+              timestamp: data.timestamp,
+              read: data.read || false,
+              readBy: data.readBy || []
+            } as Message;
+          });
+          // Clear any existing messages before setting new ones
+          setMessages(loadedMessages);
+        } catch (error) {
+          console.error('Error loading messages:', error);
+        }
       };
 
       loadMessages();
-
-      // Cleanup function to save messages to Firebase when chat is closed
-      return () => {
-        // Save any unsaved messages
-        messages.forEach(async (msg) => {
-          if (msg.id.startsWith('temp-')) {
-            try {
-              await addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
-                text: msg.text,
-                sender: msg.sender,
-                timestamp: msg.timestamp,
-                read: msg.read,
-                readBy: msg.readBy
-              });
-            } catch (error) {
-              console.error('Error saving message to Firebase:', error);
-            }
-          }
-        });
-      };
     }
   }, [selectedChat?.id]); // Only run when chat changes
 
@@ -147,46 +132,60 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         // Clear typing state for this user when receiving their message
         setTypingStates(prev => prev.filter(state => state.user !== socketMessage.senderId));
 
-        // Add message to local state
-        const messageId = socketMessage.messageId;
-        const newMessage = {
-          id: messageId,
-          text: socketMessage.text,
-          sender: socketMessage.senderId,
-          timestamp: Timestamp.fromDate(new Date(socketMessage.timestamp)),
-          read: false,
-          readBy: [socketMessage.senderId]
-        };
+        // Add message to local state only if it doesn't already exist
+        setMessages(prev => {
+          // Check if message already exists by comparing text and timestamp
+          const messageExists = prev.some(msg => 
+            msg.text === socketMessage.text && 
+            msg.sender === socketMessage.senderId &&
+            Math.abs(msg.timestamp.toMillis() - new Date(socketMessage.timestamp).getTime()) < 1000
+          );
 
-        // If we're the receiver, send read receipt immediately
-        if (socketMessage.senderId !== user.uid) {
-          console.log('📤 Sending read receipt for new message:', messageId);
-          sendReadReceipt(messageId, selectedChat.id, socketMessage.senderId);
-          newMessage.readBy.push(user.uid);
-        }
+          if (messageExists) {
+            return prev;
+          }
 
-        setMessages(prev => [...prev, newMessage]);
+          const newMessage = {
+            id: socketMessage.messageId,
+            text: socketMessage.text,
+            sender: socketMessage.senderId,
+            timestamp: Timestamp.fromDate(new Date(socketMessage.timestamp)),
+            read: false,
+            readBy: [socketMessage.senderId]
+          };
 
-        // Save to Firebase in background
-        addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
-          text: socketMessage.text,
-          sender: socketMessage.senderId,
-          timestamp: serverTimestamp(),
-          read: false,
-          readBy: newMessage.readBy
-        }).then(docRef => {
-          // Update local message ID to match Firebase ID
-          setMessages(prev => prev.map(msg => 
-            msg.id === messageId ? { ...msg, id: docRef.id } : msg
-          ));
-          
-          // Update the chat's lastMessage
-          const chatRef = doc(db, 'chats', selectedChat.id);
-          updateDoc(chatRef, {
-            lastMessage: socketMessage.text,
-            lastMessageTime: serverTimestamp()
-          });
+          // If we're the receiver, send read receipt immediately
+          if (socketMessage.senderId !== user.uid) {
+            console.log('📤 Sending read receipt for new message:', socketMessage.messageId);
+            sendReadReceipt(socketMessage.messageId, selectedChat.id, socketMessage.senderId);
+            newMessage.readBy.push(user.uid);
+          }
+
+          return [...prev, newMessage];
         });
+
+        // Only save to Firebase if we're the sender
+        if (socketMessage.senderId === user.uid) {
+          addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
+            text: socketMessage.text,
+            sender: socketMessage.senderId,
+            timestamp: serverTimestamp(),
+            read: false,
+            readBy: [socketMessage.senderId]
+          }).then(docRef => {
+            // Update local message ID to match Firebase ID
+            setMessages(prev => prev.map(msg => 
+              msg.id === socketMessage.messageId ? { ...msg, id: docRef.id } : msg
+            ));
+            
+            // Update the chat's lastMessage
+            const chatRef = doc(db, 'chats', selectedChat.id);
+            updateDoc(chatRef, {
+              lastMessage: socketMessage.text,
+              lastMessageTime: serverTimestamp()
+            });
+          });
+        }
       }
     });
 
@@ -225,41 +224,84 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     };
   }, [selectedChat?.id, user?.uid, onTypingStateReceived, onStopTypingReceived]);
 
-  // Mark messages as read when chat is opened
+  // Mark messages as read when chat is opened or new messages arrive
   useEffect(() => {
     if (selectedChat && user?.uid) {
-      const unreadMessages = messages.filter(
-        msg => msg.sender !== user.uid && !msg.readBy.includes(user.uid)
-      );
+      const markMessagesAsRead = () => {
+        const unreadMessages = messages.filter(
+          msg => msg.sender !== user.uid && !msg.readBy.includes(user.uid)
+        );
 
-      unreadMessages.forEach(msg => {
-        console.log('📤 Marking message as read:', msg.id);
-        sendReadReceipt(msg.id, selectedChat.id, msg.sender);
-        
-        // Update local state immediately
-        setMessages(prev => prev.map(message => 
-          message.id === msg.id
-            ? { ...message, readBy: [...new Set([...message.readBy, user.uid])] }
-            : message
-        ));
-      });
+        unreadMessages.forEach(msg => {
+          console.log('📤 Marking message as read:', msg.id);
+          sendReadReceipt(msg.id, selectedChat.id, msg.sender);
+          
+          // Update local state immediately
+          setMessages(prev => prev.map(message => 
+            message.id === msg.id
+              ? { ...message, readBy: [...new Set([...message.readBy, user.uid])] }
+              : message
+          ));
+
+          // Update Firebase in background
+          const messageRef = doc(db, `chats/${selectedChat.id}/messages/${msg.id}`);
+          updateDoc(messageRef, {
+            readBy: arrayUnion(user.uid)
+          }).catch(error => {
+            console.error('Error updating read status in Firebase:', error);
+          });
+        });
+      };
+
+      // Mark messages as read immediately when component mounts or messages change
+      markMessagesAsRead();
+
+      // Set up an interval to periodically check for and mark unread messages
+      const interval = setInterval(markMessagesAsRead, 5000);
+
+      return () => clearInterval(interval);
     }
   }, [messages, selectedChat, user?.uid, sendReadReceipt]);
 
-  // Listen for read receipts
+  // Listen for read receipts and online status
   useEffect(() => {
     if (!selectedChat || !user?.uid) return;
 
-    const cleanup = onMessageReadReceived(({ messageId, readerId }) => {
-      console.log('📥 Updating message read status:', { messageId, readerId });
+    const cleanup = onMessageReadReceived(({ messageId, readerId, timestamp }) => {
+      console.log('📥 Updating message read status:', { messageId, readerId, timestamp });
       
-      // Update local state immediately
+      // Update messages immediately in state
       setMessages(prev => prev.map(msg => {
-        if (msg.id === messageId || (msg.id.startsWith('temp-') && msg.sender === user.uid)) {
-          return { ...msg, readBy: [...new Set([...msg.readBy, readerId])] };
+        // If messageId is provided, only update that specific message
+        if (messageId && msg.id === messageId) {
+          const newReadBy = [...new Set([...msg.readBy, readerId])];
+          console.log(`Message ${messageId} read by:`, newReadBy);
+          return { 
+            ...msg, 
+            readBy: newReadBy
+          };
+        }
+        // If no messageId, update all messages from before the timestamp
+        if (!messageId && msg.sender === user.uid && msg.timestamp.toMillis() <= new Date(timestamp).getTime()) {
+          const newReadBy = [...new Set([...msg.readBy, readerId])];
+          console.log(`Message ${msg.id} read by:`, newReadBy);
+          return { 
+            ...msg, 
+            readBy: newReadBy
+          };
         }
         return msg;
       }));
+
+      // Update Firebase in background
+      if (messageId && !messageId.startsWith('temp-')) {
+        const messageRef = doc(db, `chats/${selectedChat.id}/messages/${messageId}`);
+        updateDoc(messageRef, {
+          readBy: arrayUnion(readerId)
+        }).catch(error => {
+          console.error('Error updating read status in Firebase:', error);
+        });
+      }
     });
 
     return cleanup;
@@ -369,7 +411,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     return lastSeen.toLocaleDateString();
   };
 
-  // Render messages and typing states
+  // Render messages with read status
   const renderMessagesAndTypingStates = () => {
     const allItems = [...messages];
     
@@ -420,16 +462,16 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
           {!message.isTyping && message.sender === user?.uid && (
             <div className="flex justify-end mt-1">
               <span className="text-xs text-gray-500 flex items-center gap-1">
-                {message.readBy.length > 1 ? (
+                {message.readBy.some(id => id !== user.uid && id === otherUserProfile?.uid) ? (
                   <>
                     Read
-                    <Check className="w-3 h-3 text-violet-500" />
-                    <Check className="w-3 h-3 text-violet-500 -ml-2" />
+                    <Check className="w-3 h-3 text-violet-500 transition-colors duration-300" />
+                    <Check className="w-3 h-3 text-violet-500 -ml-2 transition-colors duration-300" />
                   </>
                 ) : (
                   <>
                     Sent
-                    <Check className="w-3 h-3 text-gray-500" />
+                    <Check className="w-3 h-3 text-gray-500 transition-colors duration-300" />
                   </>
                 )}
               </span>

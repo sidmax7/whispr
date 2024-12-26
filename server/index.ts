@@ -53,13 +53,20 @@ const addUser = (userId: string, socketId: string) => {
     const index = users.findIndex((user) => user.userId === userId);
     users[index].socketId = socketId;
   }
+  // Emit user connected event with timestamp
+  io.emit('userConnected', {
+    userId,
+    timestamp: new Date().toISOString()
+  });
 };
 
 // Remove user from users array
 const removeUser = (socketId: string) => {
-  const index = users.findIndex((user) => user.socketId === socketId);
-  if (index !== -1) {
-    users.splice(index, 1);
+  const user = users.find((user) => user.socketId === socketId);
+  if (user) {
+    users.splice(users.indexOf(user), 1);
+    // Emit user disconnected event
+    io.emit('userDisconnected', user.userId);
   }
 };
 
@@ -86,6 +93,16 @@ io.on('connection', (socket: any) => {
         messageId,
         timestamp: new Date().toISOString()
       });
+      
+      // If receiver is connected, mark as read immediately
+      if (users.some(u => u.userId === receiverId)) {
+        io.emit('messageRead', {
+          messageId,
+          chatId,
+          readerId: receiverId,
+          timestamp: new Date().toISOString()
+        });
+      }
     }
   });
 
@@ -115,17 +132,26 @@ io.on('connection', (socket: any) => {
   // Handle message read receipt
   socket.on('messageRead', ({ messageId, chatId, readerId, senderId }: ReadReceiptData) => {
     console.log('📤 Read receipt from:', readerId, 'to:', senderId);
-    const user = getUser(senderId);
-    if (user) {
-      // Emit only messageRead event
-      io.to(user.socketId).emit('messageRead', {
-        messageId,
+    
+    // Broadcast to all users in the chat with timestamp
+    io.emit('messageRead', {
+      messageId,
+      chatId,
+      readerId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('📨 Broadcasted read receipt to all users');
+  });
+
+  // Handle real-time read status
+  socket.on('getReadStatus', ({ chatId }: { chatId: string }) => {
+    const userId = users.find(u => u.socketId === socket.id)?.userId;
+    if (userId) {
+      io.emit('messageRead', {
         chatId,
-        readerId
+        readerId: userId,
+        timestamp: new Date().toISOString()
       });
-      console.log('📨 Emitted read receipt to:', user.socketId);
-    } else {
-      console.log('❌ Message sender not found:', senderId);
     }
   });
 

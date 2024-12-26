@@ -16,6 +16,7 @@ export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
   const { user } = useAuth();
   const connectedRef = useRef<boolean>(false);
+  const onlineUsersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (user?.uid) {
@@ -36,6 +37,23 @@ export function useSocket() {
       socketRef.current.on('disconnect', () => {
         console.log('🔌 Socket disconnected');
         connectedRef.current = false;
+        onlineUsersRef.current.clear();
+      });
+
+      socketRef.current.on('getUsers', (users: User[]) => {
+        onlineUsersRef.current = new Set(users.map(u => u.userId));
+      });
+
+      socketRef.current.on('userConnected', ({ userId, timestamp }: { userId: string, timestamp: string }) => {
+        onlineUsersRef.current.add(userId);
+        // When a user connects, emit read status for their active chat
+        if (userId !== user.uid) {
+          socketRef.current?.emit('getReadStatus', { chatId: userId });
+        }
+      });
+
+      socketRef.current.on('userDisconnected', (userId: string) => {
+        onlineUsersRef.current.delete(userId);
       });
 
       return () => {
@@ -45,10 +63,15 @@ export function useSocket() {
           socketRef.current.disconnect();
           socketRef.current = null;
           connectedRef.current = false;
+          onlineUsersRef.current.clear();
         }
       };
     }
   }, [user?.uid]);
+
+  const isUserOnline = useCallback((userId: string) => {
+    return onlineUsersRef.current.has(userId);
+  }, []);
 
   const sendMessage = useCallback((receiverId: string, text: string, chatId: string, messageId: string) => {
     if (socketRef.current && user?.uid) {
@@ -119,24 +142,8 @@ export function useSocket() {
   }, []);
 
   const sendReadReceipt = useCallback((messageId: string, chatId: string, senderId: string) => {
-    if (!socketRef.current || !user?.uid || !connectedRef.current) {
-      console.log('⏳ Socket not ready, waiting for connection...');
-      // Wait for connection and retry
-      const retryInterval = setInterval(() => {
-        if (socketRef.current && user?.uid && connectedRef.current) {
-          clearInterval(retryInterval);
-          const data = {
-            messageId,
-            chatId,
-            readerId: user.uid,
-            senderId
-          };
-          console.log('📤 Sending read receipt:', data);
-          socketRef.current.emit('messageRead', data);
-        }
-      }, 1000);
-      // Clear interval after 10 seconds if still not connected
-      setTimeout(() => clearInterval(retryInterval), 10000);
+    if (!socketRef.current || !user?.uid) {
+      console.log('❌ Cannot send read receipt: socket or user not ready');
       return;
     }
 
@@ -150,26 +157,23 @@ export function useSocket() {
     socketRef.current.emit('messageRead', data);
   }, [user?.uid]);
 
-  const onMessageReadReceived = useCallback((callback: (data: { messageId: string; chatId: string; readerId: string }) => void) => {
+  const onMessageReadReceived = useCallback((callback: (data: { messageId?: string; chatId: string; readerId: string; timestamp: string }) => void) => {
     if (!socketRef.current) return () => {};
 
-    const handleReadReceipt = (data: { messageId: string; chatId: string; readerId: string }) => {
+    const handleReadReceipt = (data: { messageId?: string; chatId: string; readerId: string; timestamp: string }) => {
       console.log('📥 Received read receipt:', data);
       callback(data);
     };
 
-    // Remove existing listeners
+    // Remove any existing listener
     socketRef.current.off('messageRead');
-    socketRef.current.off('messageReadReceived');
-
-    // Listen for both events
+    
+    // Add new listener
     socketRef.current.on('messageRead', handleReadReceipt);
-    socketRef.current.on('messageReadReceived', handleReadReceipt);
 
     return () => {
       if (socketRef.current) {
         socketRef.current.off('messageRead');
-        socketRef.current.off('messageReadReceived');
       }
     };
   }, []);
@@ -182,6 +186,7 @@ export function useSocket() {
     onTypingStateReceived,
     onStopTypingReceived,
     sendReadReceipt,
-    onMessageReadReceived
+    onMessageReadReceived,
+    isUserOnline
   };
 } 
