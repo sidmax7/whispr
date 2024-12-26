@@ -5,11 +5,10 @@ import { collection, query, onSnapshot, where, addDoc, serverTimestamp, getDocs 
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import UserSearch from './UserSearch';
-import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Chat, UserProfile } from '../types/chat';
 import { Timestamp } from 'firebase/firestore';
-import { LogOut, Search, Settings, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { SettingsDialog } from './settings-dialog';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/app/lib/firebase';
@@ -30,8 +29,8 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [onlineStatuses, setOnlineStatuses] = useState<{[key: string]: OnlineStatus}>({});
-  const { user, signOut } = useAuth();
-  const router = useRouter();
+  const { user} = useAuth();
+  
   const [userPhotoURL, setUserPhotoURL] = useState<string | null>(null);
 
   const fetchUserProfiles = async (chat: Chat) => {
@@ -219,19 +218,9 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
     return b.timestamp.toMillis() - a.timestamp.toMillis();
   });
 
-  const formatTimestamp = (timestamp: Timestamp | undefined) => {
-    if (!timestamp) return 'Today';
-    return new Date(timestamp.seconds * 1000).toLocaleDateString();
-  };
+  
 
-  const handleLogout = async () => {
-    try {
-      await signOut()
-      router.push('/')
-    } catch (error) {
-      console.error('Error logging out:', error)
-    }
-  }
+
 
   return (
     <div className="flex flex-col h-full bg-[#252436] w-full overflow-hidden">

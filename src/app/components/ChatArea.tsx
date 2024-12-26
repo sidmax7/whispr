@@ -4,7 +4,7 @@ import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import { Chat } from '../types/chat';
 import ChatInput from './ChatInput';
-import { Check, Circle } from 'lucide-react';
+import { Check} from 'lucide-react';
 
 interface Message {
   id: string;
@@ -25,13 +25,6 @@ interface TypingState {
   user: string;
 }
 
-interface User {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL?: string;
-  lastSeen?: Timestamp;
-}
 
 export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);

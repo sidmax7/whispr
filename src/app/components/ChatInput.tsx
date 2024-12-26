@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
-import { Plus, Send, Mic } from 'lucide-react';
+import { Plus, Mic } from 'lucide-react';
 import { IoIosSend } from 'react-icons/io';
 
 interface ChatInputProps {
