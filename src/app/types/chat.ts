@@ -18,7 +18,7 @@ export interface Chat {
   id: string;
   participants: Participant[];
   lastMessage: string;
-  lastMessageTime: Timestamp;
+  lastMessageTime: Timestamp | null;
   createdAt: Timestamp;
 }
 
@@ -28,4 +28,6 @@ export interface Message {
   senderId: string;
   timestamp: Timestamp;
   read: boolean;
+  readBy: string[];
+  isTyping?: boolean;
 } 

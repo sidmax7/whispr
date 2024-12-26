@@ -57,62 +57,58 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
   };
 
   useEffect(() => {
-    if (user?.email) {
-      console.log('Setting up chat listener for user:', user);
-      
-      const q = query(
-        collection(db, 'chats'),
-        where('participants', 'array-contains', {
-          uid: user.uid,
-          email: user.email
-        })
-      );
+    if (!user?.email || !user?.uid) return;
 
-      console.log('Chat query:', q);
-      
-      const unsubscribe = onSnapshot(q, async (snapshot) => {
-        console.log('Chat snapshot received:', snapshot.docs.length, 'chats');
-        console.log('Snapshot docs:', snapshot.docs.map(doc => ({ id: doc.id, data: doc.data() })));
-        
-        const chatsData = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            participants: data.participants || [],
-            lastMessage: data.lastMessage || '',
-            lastMessageTime: data.lastMessageTime || serverTimestamp(),
-            createdAt: data.createdAt || serverTimestamp()
-          } as Chat;
-        });
-        
-        console.log('Setting chats:', chatsData);
-        setChats(chatsData);
-      }, (error) => {
-        console.error('Error in chat listener:', error);
+    const q = query(
+      collection(db, 'chats'), 
+      where('participants', 'array-contains', { 
+        email: user.email, 
+        uid: user.uid 
+      })
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const chatDocs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Chat[];
+
+      // Sort chats by last message time
+      const sortedChats = chatDocs.sort((a, b) => {
+        if (!a.lastMessageTime || !b.lastMessageTime) return 0;
+        try {
+          return b.lastMessageTime.toMillis() - a.lastMessageTime.toMillis();
+        } catch (error) {
+          return 0;
+        }
       });
 
-      return () => unsubscribe();
-    }
-  }, [user]);
+      setChats(sortedChats);
+    });
+
+    return () => unsubscribe();
+  }, [user?.email, user?.uid]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.email) return;
 
     const usersRef = collection(db, 'users');
     const unsubscribe = onSnapshot(usersRef, (snapshot) => {
       const statuses: {[key: string]: OnlineStatus} = {};
       snapshot.docs.forEach(doc => {
         const data = doc.data();
-        statuses[data.email] = {
-          online: data.online || false,
-          lastSeen: data.lastSeen
-        };
+        if (data.email) {
+          statuses[data.email] = {
+            online: data.online || false,
+            lastSeen: data.lastSeen
+          };
+        }
       });
       setOnlineStatuses(statuses);
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user?.email]);
 
   useEffect(() => {
     const fetchUserPhoto = async () => {
@@ -254,23 +250,34 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
   };
 
   const getUnreadCount = async (chat: Chat) => {
-    if (!user?.uid) return 0;
+    if (!user?.uid || !chat?.id) return 0;
     
-    // Get unread messages from messages subcollection
-    const messagesRef = collection(db, `chats/${chat.id}/messages`);
-    const q = query(
-      messagesRef,
-      where('senderId', '!=', user.uid),
-      where('read', '==', false)
-    );
-    
-    const snapshot = await getDocs(q);
-    return snapshot.docs.length;
+    try {
+      // Get all messages from the chat
+      const messagesRef = collection(db, `chats/${chat.id}/messages`);
+      const snapshot = await getDocs(messagesRef);
+      
+      // Count messages that are not from the current user and haven't been read
+      const count = snapshot.docs.reduce((acc, doc) => {
+        const data = doc.data();
+        if (data.sender !== user.uid && !data.readBy.includes(user.uid)) {
+          return acc + 1;
+        }
+        return acc;
+      }, 0);
+      
+      return count;
+    } catch (error) {
+      console.error('Error getting unread count:', error);
+      return 0;
+    }
   };
 
   const sortedChats = [...chats].sort((a, b) => {
-    if (!a.lastMessageTime || !b.lastMessageTime) return 0;
-    return b.lastMessageTime.toMillis() - a.lastMessageTime.toMillis();
+    // Handle cases where lastMessageTime might be undefined or not a Timestamp
+    const timeA = a.lastMessageTime?.toMillis?.() || 0;
+    const timeB = b.lastMessageTime?.toMillis?.() || 0;
+    return timeB - timeA;
   });
 
   const ChatItem = ({ chat }: { chat: Chat }) => {
@@ -281,11 +288,35 @@ export default function ChatList({ onSelectChat, selectedChat, onClose }: ChatLi
       const loadUserData = async () => {
         const userData = await getChatUser(chat);
         setOtherUser(userData);
-        const count = await getUnreadCount(chat);
-        setUnreadCount(count);
       };
       loadUserData();
     }, [chat]);
+
+    // Separate effect for real-time unread count
+    useEffect(() => {
+      if (!user?.uid || !chat?.id) return;
+
+      // Set up real-time listener for unread messages
+      const messagesRef = collection(db, `chats/${chat.id}/messages`);
+      const q = query(
+        messagesRef,
+        where('readBy', 'array-contains-any', [user.uid])
+      );
+
+      const unsubscribe = onSnapshot(messagesRef, (snapshot) => {
+        // Count messages that are not from the current user and haven't been read
+        const count = snapshot.docs.reduce((acc, doc) => {
+          const data = doc.data();
+          if (data.sender !== user.uid && !data.readBy.includes(user.uid)) {
+            return acc + 1;
+          }
+          return acc;
+        }, 0);
+        setUnreadCount(count);
+      });
+
+      return () => unsubscribe();
+    }, [chat.id, user?.uid]);
 
     if (!otherUser) return null;
 

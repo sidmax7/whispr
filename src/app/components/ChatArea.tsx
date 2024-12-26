@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, Timestamp, where, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, Timestamp, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '@/app/lib/firebase';
 import { useAuth } from '@/app/hooks/useAuth';
 import { Chat } from '../types/chat';
@@ -47,7 +47,9 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     sendTypingState, 
     stopTyping, 
     onTypingStateReceived, 
-    onStopTypingReceived 
+    onStopTypingReceived,
+    sendReadReceipt,
+    onMessageReadReceived
   } = useSocket();
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfile | null>(null);
 
@@ -90,7 +92,6 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
   // Listen for Firebase messages - only on initial load
   useEffect(() => {
     if (selectedChat) {
-      console.log('Loading initial messages from Firebase for chat:', selectedChat.id);
       const q = query(
         collection(db, `chats/${selectedChat.id}/messages`), 
         orderBy('timestamp', 'asc')
@@ -110,7 +111,6 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
             readBy: data.readBy || []
           } as Message;
         });
-        console.log('Loaded initial messages from Firebase:', loadedMessages);
         setMessages(loadedMessages);
       };
 
@@ -118,7 +118,6 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
       // Cleanup function to save messages to Firebase when chat is closed
       return () => {
-        console.log('Saving messages to Firebase before cleanup');
         // Save any unsaved messages
         messages.forEach(async (msg) => {
           if (msg.id.startsWith('temp-')) {
@@ -143,43 +142,56 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
   useEffect(() => {
     if (!selectedChat || !user?.uid) return;
 
-    console.log('Setting up message listener for chat:', selectedChat.id);
     const cleanup = onMessageReceived((socketMessage: SocketMessage) => {
-      console.log('Received real-time message:', socketMessage);
       if (socketMessage.chatId === selectedChat.id) {
+        // Clear typing state for this user when receiving their message
+        setTypingStates(prev => prev.filter(state => state.user !== socketMessage.senderId));
+
         // Add message to local state
+        const messageId = socketMessage.messageId;
         const newMessage = {
-          id: `temp-${Date.now()}`,
+          id: messageId,
           text: socketMessage.text,
           sender: socketMessage.senderId,
           timestamp: Timestamp.fromDate(new Date(socketMessage.timestamp)),
           read: false,
           readBy: [socketMessage.senderId]
         };
+
+        // If we're the receiver, send read receipt immediately
+        if (socketMessage.senderId !== user.uid) {
+          console.log('📤 Sending read receipt for new message:', messageId);
+          sendReadReceipt(messageId, selectedChat.id, socketMessage.senderId);
+          newMessage.readBy.push(user.uid);
+        }
+
         setMessages(prev => [...prev, newMessage]);
 
-        // If we're the receiver, save to Firebase
-        if (socketMessage.senderId !== user.uid) {
-          addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
-            text: socketMessage.text,
-            sender: socketMessage.senderId,
-            timestamp: serverTimestamp(),
-            read: false,
-            readBy: [socketMessage.senderId]
-          }).then(() => {
-            // Update the chat's lastMessage
-            const chatRef = doc(db, 'chats', selectedChat.id);
-            updateDoc(chatRef, {
-              lastMessage: socketMessage.text,
-              lastMessageTime: serverTimestamp()
-            });
+        // Save to Firebase in background
+        addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
+          text: socketMessage.text,
+          sender: socketMessage.senderId,
+          timestamp: serverTimestamp(),
+          read: false,
+          readBy: newMessage.readBy
+        }).then(docRef => {
+          // Update local message ID to match Firebase ID
+          setMessages(prev => prev.map(msg => 
+            msg.id === messageId ? { ...msg, id: docRef.id } : msg
+          ));
+          
+          // Update the chat's lastMessage
+          const chatRef = doc(db, 'chats', selectedChat.id);
+          updateDoc(chatRef, {
+            lastMessage: socketMessage.text,
+            lastMessageTime: serverTimestamp()
           });
-        }
+        });
       }
     });
 
     return cleanup;
-  }, [selectedChat, user?.uid, onMessageReceived]);
+  }, [selectedChat, user?.uid, onMessageReceived, sendReadReceipt]);
 
   // Listen for typing states
   useEffect(() => {
@@ -187,56 +199,71 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
     const handleTyping = ({ senderId, chatId, text }: { senderId: string; chatId: string; text: string }) => {
       if (chatId === selectedChat.id && senderId !== user.uid) {
-        console.log('Received typing state:', { senderId, chatId, text });
         setTypingStates(prev => {
-          // Remove any existing state for this user
           const filtered = prev.filter(state => state.user !== senderId);
-          // Add new state if there's text
-          return text ? [...filtered, { user: senderId, text }] : filtered;
+          if (text) {
+            return [...filtered, { user: senderId, text }];
+          }
+          return filtered;
         });
       }
     };
 
     const handleStopTyping = ({ senderId, chatId }: { senderId: string; chatId: string }) => {
       if (chatId === selectedChat.id && senderId !== user.uid) {
-        console.log('Received stop typing:', { senderId, chatId });
         setTypingStates(prev => prev.filter(state => state.user !== senderId));
       }
     };
 
-    console.log('Setting up typing state listeners');
     const cleanupTyping = onTypingStateReceived(handleTyping);
     const cleanupStopTyping = onStopTypingReceived(handleStopTyping);
 
     return () => {
-      console.log('Cleaning up typing state listeners');
       cleanupTyping();
       cleanupStopTyping();
       setTypingStates([]);
     };
   }, [selectedChat?.id, user?.uid, onTypingStateReceived, onStopTypingReceived]);
 
-  // Mark messages as read
+  // Mark messages as read when chat is opened
   useEffect(() => {
     if (selectedChat && user?.uid) {
       const unreadMessages = messages.filter(
-        msg => !msg.id.startsWith('temp-') && // Skip temporary messages
-        msg.sender !== user.uid && 
-        !msg.readBy.includes(user.uid)
+        msg => msg.sender !== user.uid && !msg.readBy.includes(user.uid)
       );
 
-      unreadMessages.forEach(async (msg) => {
-        try {
-          const messageRef = doc(db, `chats/${selectedChat.id}/messages/${msg.id}`);
-          await updateDoc(messageRef, {
-            readBy: arrayUnion(user.uid)
-          });
-        } catch (error) {
-          console.error('Error marking message as read:', error);
-        }
+      unreadMessages.forEach(msg => {
+        console.log('📤 Marking message as read:', msg.id);
+        sendReadReceipt(msg.id, selectedChat.id, msg.sender);
+        
+        // Update local state immediately
+        setMessages(prev => prev.map(message => 
+          message.id === msg.id
+            ? { ...message, readBy: [...new Set([...message.readBy, user.uid])] }
+            : message
+        ));
       });
     }
-  }, [messages, selectedChat, user?.uid]);
+  }, [messages, selectedChat, user?.uid, sendReadReceipt]);
+
+  // Listen for read receipts
+  useEffect(() => {
+    if (!selectedChat || !user?.uid) return;
+
+    const cleanup = onMessageReadReceived(({ messageId, readerId }) => {
+      console.log('📥 Updating message read status:', { messageId, readerId });
+      
+      // Update local state immediately
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId || (msg.id.startsWith('temp-') && msg.sender === user.uid)) {
+          return { ...msg, readBy: [...new Set([...msg.readBy, readerId])] };
+        }
+        return msg;
+      }));
+    });
+
+    return cleanup;
+  }, [selectedChat?.id, user?.uid, onMessageReadReceived]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -265,27 +292,46 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
       const otherUserId = getOtherUserId();
       if (!otherUserId) return;
 
-      // Add message to local state with temporary ID
-      const tempMessage = {
-        id: `temp-${Date.now()}`,
+      const messageId = `msg-${Date.now()}`;
+
+      // Add message to local state first
+      const newMessage = {
+        id: messageId,
         text: messageText,
         sender: user.uid,
         timestamp: Timestamp.now(),
         read: false,
         readBy: [user.uid]
       };
-      setMessages(prev => [...prev, tempMessage]);
+      setMessages(prev => [...prev, newMessage]);
 
       // Send through socket for real-time delivery
-      console.log('Sending message to user:', otherUserId);
-      sendMessage(otherUserId, messageText, selectedChat.id);
+      sendMessage(otherUserId, messageText, selectedChat.id, messageId);
 
-      // Update the chat's lastMessage in Firebase
-      const chatRef = doc(db, 'chats', selectedChat.id);
-      await updateDoc(chatRef, {
-        lastMessage: messageText,
-        lastMessageTime: serverTimestamp()
-      });
+      // Save to Firebase in background
+      try {
+        const messageDoc = await addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
+          text: messageText,
+          sender: user.uid,
+          timestamp: serverTimestamp(),
+          read: false,
+          readBy: [user.uid]
+        });
+
+        // Update local message ID to match Firebase ID
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId ? { ...msg, id: messageDoc.id } : msg
+        ));
+
+        // Update the chat's lastMessage
+        const chatRef = doc(db, 'chats', selectedChat.id);
+        await updateDoc(chatRef, {
+          lastMessage: messageText,
+          lastMessageTime: serverTimestamp()
+        });
+      } catch (error) {
+        console.error('Error saving message:', error);
+      }
     }
   };
 
@@ -295,10 +341,8 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
       if (!otherUserId) return;
 
       if (text) {
-        console.log('Sending typing state:', { otherUserId, text });
         sendTypingState(otherUserId, selectedChat.id, text);
       } else {
-        console.log('Sending stop typing:', { otherUserId });
         stopTyping(otherUserId, selectedChat.id);
       }
     }
@@ -331,20 +375,69 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
     
     // Add typing states as ghost messages at the end
     typingStates.forEach(state => {
-      if (state.text) {  // Only add if there's text
-        allItems.push({
-          id: `typing-${state.user}`,
-          text: state.text,
-          sender: state.user,
-          timestamp: Timestamp.now(),
-          read: false,
-          readBy: [],
-          isTyping: true
-        });
-      }
+      allItems.push({
+        id: `typing-${state.user}-${Date.now()}`,
+        text: state.text,
+        sender: state.user,
+        timestamp: Timestamp.now(),
+        read: false,
+        readBy: [],
+        isTyping: true
+      });
     });
 
-    return allItems;
+    // Sort messages by timestamp
+    allItems.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis());
+
+    return allItems.map((message, index) => (
+      <div
+        key={`${message.id}-${index}`}
+        className={`flex ${
+          message.sender === user?.uid ? 'justify-end' : 'justify-start'
+        } mb-4`}
+      >
+        <div className="break-words max-w-[85%] md:max-w-[75%] w-fit">
+          <div
+            className={`px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-all ${
+              message.isTyping 
+                ? 'bg-[#2A2640]/50 text-gray-400'
+                : message.sender === user?.uid
+                ? 'bg-[#584ACB] text-white'
+                : 'bg-[#413F51] text-white'
+            } rounded-[20px] ${
+              message.sender === user?.uid ? 'rounded-br-[5px]' : 'rounded-bl-[5px]'
+            } ${message.isTyping ? 'animate-pulse' : ''}`}
+          >
+            {message.text}
+            {message.isTyping && (
+              <span className="ml-2 inline-flex">
+                <span className="animate-bounce">.</span>
+                <span className="animate-bounce delay-100">.</span>
+                <span className="animate-bounce delay-200">.</span>
+              </span>
+            )}
+          </div>
+          {!message.isTyping && message.sender === user?.uid && (
+            <div className="flex justify-end mt-1">
+              <span className="text-xs text-gray-500 flex items-center gap-1">
+                {message.readBy.length > 1 ? (
+                  <>
+                    Read
+                    <Check className="w-3 h-3 text-violet-500" />
+                    <Check className="w-3 h-3 text-violet-500 -ml-2" />
+                  </>
+                ) : (
+                  <>
+                    Sent
+                    <Check className="w-3 h-3 text-gray-500" />
+                  </>
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    ));
   };
 
   if (!selectedChat) {
@@ -424,59 +517,7 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
 
       {/* Messages and typing states */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-20">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.sender === user?.uid ? 'justify-end' : 'justify-start'
-            } mb-4`}
-          >
-            <div className="break-words max-w-[85%] md:max-w-[75%] w-fit">
-              <div
-                className={`px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-all ${
-                  message.sender === user?.uid
-                    ? 'bg-[#584ACB] text-white'
-                    : 'bg-[#413F51] text-white'
-                } rounded-[20px] ${
-                  message.sender === user?.uid ? 'rounded-br-[5px]' : 'rounded-bl-[5px]'
-                }`}
-              >
-                {message.text}
-              </div>
-              {message.sender === user?.uid && (
-                <div className="flex justify-end mt-1">
-                  <span className="text-xs text-gray-500 flex items-center gap-1">
-                    {message.readBy.length > 1 ? (
-                      <>
-                        Read
-                        <Check className="w-3 h-3 text-violet-500" />
-                        <Check className="w-3 h-3 text-violet-500 -ml-2" />
-                      </>
-                    ) : (
-                      <>
-                        Sent
-                        <Check className="w-3 h-3 text-gray-500" />
-                      </>
-                    )}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {/* Typing indicators */}
-        {typingStates.map(state => (
-          state.text && (
-            <div key={`typing-${state.user}`} className="flex justify-start mb-4">
-              <div className="break-words max-w-[85%] md:max-w-[75%] w-fit animate-pulse">
-                <div className="px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-all bg-[#2A2640]/50 text-gray-400 rounded-[20px] rounded-bl-[5px]">
-                  {state.text}
-                </div>
-              </div>
-            </div>
-          )
-        ))}
+        {renderMessagesAndTypingStates()}
         <div ref={messagesEndRef} />
       </div>
 

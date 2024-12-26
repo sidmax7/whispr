@@ -24,6 +24,7 @@ interface MessageData {
   receiverId: string;
   text: string;
   chatId: string;
+  messageId?: string;
 }
 
 interface TypingData {
@@ -33,10 +34,11 @@ interface TypingData {
   text: string;
 }
 
-interface StopTypingData {
-  senderId: string;
-  receiverId: string;
+interface ReadReceiptData {
+  messageId: string;
   chatId: string;
+  readerId: string;
+  senderId: string;
 }
 
 const users: User[] = [];
@@ -46,13 +48,10 @@ const addUser = (userId: string, socketId: string) => {
   const existingUser = users.some((user) => user.userId === userId);
   if (!existingUser) {
     users.push({ userId, socketId });
-    console.log('User added:', { userId, socketId });
-    console.log('Current users:', users);
   } else {
     // Update socket ID for existing user
     const index = users.findIndex((user) => user.userId === userId);
     users[index].socketId = socketId;
-    console.log('User socket updated:', { userId, socketId });
   }
 };
 
@@ -60,80 +59,78 @@ const addUser = (userId: string, socketId: string) => {
 const removeUser = (socketId: string) => {
   const index = users.findIndex((user) => user.socketId === socketId);
   if (index !== -1) {
-    const removedUser = users.splice(index, 1)[0];
-    console.log('User removed:', removedUser);
-    console.log('Current users:', users);
+    users.splice(index, 1);
   }
 };
 
 // Get user by userId
 const getUser = (userId: string) => {
-  const user = users.find((user) => user.userId === userId);
-  console.log('Getting user:', { userId, found: !!user });
-  return user;
+  return users.find((user) => user.userId === userId);
 };
 
 io.on('connection', (socket: any) => {
-  console.log('A user connected with socket ID:', socket.id);
-
   // When a user connects
   socket.on('addUser', (userId: string) => {
-    console.log('Add user event received:', { userId, socketId: socket.id });
     addUser(userId, socket.id);
     io.emit('getUsers', users);
   });
 
   // Send and get message
-  socket.on('sendMessage', ({ senderId, receiverId, text, chatId }: MessageData) => {
-    console.log('Send message event received:', { senderId, receiverId, text, chatId });
+  socket.on('sendMessage', ({ senderId, receiverId, text, chatId, messageId }: MessageData) => {
     const user = getUser(receiverId);
     if (user) {
-      console.log('Emitting message to user:', user.socketId);
       io.to(user.socketId).emit('getMessage', {
         senderId,
         text,
         chatId,
+        messageId,
         timestamp: new Date().toISOString()
       });
-    } else {
-      console.log('Recipient not found:', receiverId);
     }
   });
 
   // Handle typing state
   socket.on('typing', ({ senderId, receiverId, chatId, text }: TypingData) => {
-    console.log('Typing event received:', { senderId, receiverId, chatId, text });
     const user = getUser(receiverId);
     if (user) {
-      console.log('Emitting typing state to user:', user.socketId);
       io.to(user.socketId).emit('userTyping', {
         senderId,
         chatId,
         text
       });
-    } else {
-      console.log('Recipient not found:', receiverId);
     }
   });
 
   // Handle stop typing
-  socket.on('stopTyping', ({ senderId, receiverId, chatId }: StopTypingData) => {
-    console.log('Stop typing event received:', { senderId, receiverId, chatId });
+  socket.on('stop-typing', ({ senderId, receiverId, chatId }: MessageData) => {
     const user = getUser(receiverId);
     if (user) {
-      console.log('Emitting stop typing to user:', user.socketId);
       io.to(user.socketId).emit('userStopTyping', {
         senderId,
         chatId
       });
+    }
+  });
+
+  // Handle message read receipt
+  socket.on('messageRead', ({ messageId, chatId, readerId, senderId }: ReadReceiptData) => {
+    console.log('📤 Read receipt from:', readerId, 'to:', senderId);
+    const user = getUser(senderId);
+    if (user) {
+      // Emit only messageRead event
+      io.to(user.socketId).emit('messageRead', {
+        messageId,
+        chatId,
+        readerId
+      });
+      console.log('📨 Emitted read receipt to:', user.socketId);
     } else {
-      console.log('Recipient not found:', receiverId);
+      console.log('❌ Message sender not found:', senderId);
     }
   });
 
   // When user disconnects
   socket.on('disconnect', () => {
-    console.log('A user disconnected:', socket.id);
     removeUser(socket.id);
     io.emit('getUsers', users);
   });
@@ -141,5 +138,5 @@ io.on('connection', (socket: any) => {
 
 const PORT = process.env.PORT || 4000;
 httpServer.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 }); 

@@ -40,24 +40,21 @@ export default function ChatInput({ selectedChatId, userId, onSendMessage, onTyp
     
     // Send typing state
     if (onTyping) {
-      console.log('Handling typing state change:', text);
       onTyping(text);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
-    console.log('Submitting message:', newMessage);
-    onSendMessage(newMessage.trim());
-    setNewMessage('');
-    
-    // Clear typing state after submit
+    // Clear typing state before sending message
     if (onTyping) {
-      console.log('Clearing typing state after submit');
       onTyping('');
     }
+
+    await onSendMessage(newMessage.trim());
+    setNewMessage('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
