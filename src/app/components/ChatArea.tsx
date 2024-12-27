@@ -154,10 +154,21 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
             readBy: [socketMessage.senderId]
           };
 
-          // If we're the receiver, send read receipt immediately
+          // If we're the receiver, mark as read after saving to Firebase
           if (socketMessage.senderId !== user.uid) {
-            console.log('📤 Sending read receipt for new message:', socketMessage.messageId);
-            sendReadReceipt(socketMessage.messageId, selectedChat.id, socketMessage.senderId);
+            // Save to Firebase first
+            addDoc(collection(db, `chats/${selectedChat.id}/messages`), {
+              text: socketMessage.text,
+              sender: socketMessage.senderId,
+              timestamp: serverTimestamp(),
+              read: false,
+              readBy: [socketMessage.senderId, user.uid]
+            }).then(docRef => {
+              // After message is saved, send read receipt
+              console.log('📤 Sending read receipt for new message:', docRef.id);
+              sendReadReceipt(docRef.id, selectedChat.id, socketMessage.senderId);
+            });
+
             newMessage.readBy.push(user.uid);
           }
 
@@ -293,8 +304,8 @@ export default function ChatArea({ selectedChat, onOpenChatList }: ChatAreaProps
         return msg;
       }));
 
-      // Update Firebase in background
-      if (messageId && !messageId.startsWith('temp-')) {
+      // Only update Firebase if we have a valid messageId and it's not a temporary one
+      if (messageId && !messageId.startsWith('msg-')) {
         const messageRef = doc(db, `chats/${selectedChat.id}/messages/${messageId}`);
         updateDoc(messageRef, {
           readBy: arrayUnion(readerId)
